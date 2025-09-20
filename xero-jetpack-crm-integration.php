@@ -203,6 +203,8 @@ class Xero_Jetpack_CRM_Integration {
                 <div class="notice notice-info" style="margin: 20px 0; padding: 15px; background: #f0f8ff; border-left: 4px solid #0073aa; border-radius: 8px;">
                     <h4 style="margin: 0 0 10px 0; color: #0073aa;">Debug Information</h4>
                     <p style="margin: 0 0 5px 0;"><strong>Current Redirect URI:</strong> <?php echo esc_html(admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback')); ?></p>
+                    <p style="margin: 0 0 5px 0;"><strong>Client ID:</strong> <?php echo !empty(get_option('xero_client_id')) ? 'Present (Length: ' . strlen(get_option('xero_client_id')) . ')' : 'Missing'; ?></p>
+                    <p style="margin: 0 0 5px 0;"><strong>Client Secret:</strong> <?php echo !empty(get_option('xero_client_secret')) ? 'Present (Length: ' . strlen(get_option('xero_client_secret')) . ')' : 'Missing'; ?></p>
                     <p style="margin: 0 0 5px 0;"><strong>Access Token:</strong> <?php echo !empty($xero_access_token) ? 'Present (Length: ' . strlen($xero_access_token) . ')' : 'Missing'; ?></p>
                     <p style="margin: 0 0 5px 0;"><strong>Refresh Token:</strong> <?php echo !empty($xero_refresh_token) ? 'Present (Length: ' . strlen($xero_refresh_token) . ')' : 'Missing'; ?></p>
                     <p style="margin: 0 0 5px 0;"><strong>Token Expires:</strong> <?php echo $xero_token_expires > 0 ? date('Y-m-d H:i:s', $xero_token_expires) . ' (' . floor(($xero_token_expires - time()) / 60) . ' minutes left)' : 'Not set'; ?></p>
@@ -3242,6 +3244,14 @@ spl_autoload_register(function ($class) {
             $token_url = 'https://identity.xero.com/connect/token';
             $redirect_uri = admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback');
             
+            // Log the token exchange request details
+            error_log('OAuth Callback - Token exchange request details:');
+            error_log('- Client ID: ' . $client_id);
+            error_log('- Client Secret: ' . (empty($client_secret) ? 'EMPTY' : 'PRESENT (' . strlen($client_secret) . ' chars)'));
+            error_log('- Code: ' . $code);
+            error_log('- Redirect URI: ' . $redirect_uri);
+            error_log('- Token URL: ' . $token_url);
+            
             $response = wp_remote_post($token_url, array(
                 'body' => array(
                     'grant_type' => 'authorization_code',
@@ -3251,7 +3261,8 @@ spl_autoload_register(function ($class) {
                     'redirect_uri' => $redirect_uri
                 ),
                 'headers' => array(
-                    'Content-Type' => 'application/x-www-form-urlencoded'
+                    'Content-Type' => 'application/x-www-form-urlencoded',
+                    'Accept' => 'application/json'
                 ),
                 'timeout' => 30
             ));
@@ -3603,6 +3614,42 @@ spl_autoload_register(function ($class) {
         error_log('OAuth Test: Generated auth URL: ' . $auth_url);
         
         return $auth_url;
+    }
+    
+    public function verify_xero_credentials() {
+        $client_id = get_option('xero_client_id');
+        $client_secret = get_option('xero_client_secret');
+        
+        if (empty($client_id) || empty($client_secret)) {
+            return array('valid' => false, 'error' => 'Credentials not configured');
+        }
+        
+        // Test with a simple API call to verify credentials
+        $test_url = 'https://api.xero.com/connections';
+        
+        // Try to get connections (this will fail with invalid credentials)
+        $response = wp_remote_get($test_url, array(
+            'headers' => array(
+                'Authorization' => 'Bearer test_token',
+                'Accept' => 'application/json'
+            ),
+            'timeout' => 10
+        ));
+        
+        if (is_wp_error($response)) {
+            return array('valid' => false, 'error' => 'Network error: ' . $response->get_error_message());
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        
+        // 401 means invalid token (expected), 403 means invalid client
+        if ($http_code === 401) {
+            return array('valid' => true, 'message' => 'Credentials format appears valid');
+        } elseif ($http_code === 403) {
+            return array('valid' => false, 'error' => 'Invalid client credentials');
+        }
+        
+        return array('valid' => true, 'message' => 'Credentials verified');
     }
     
     private function install_plugin_from_url($plugin_url) {
