@@ -3320,14 +3320,472 @@ spl_autoload_register(function ($class) {
         }
         
         // Check if we have valid tokens
-        $refresh_token = get_option('xero_refresh_token');
-        if (empty($refresh_token)) {
+        $access_token = $this->decrypt_token(get_option('xero_access_token'));
+        $refresh_token = $this->decrypt_token(get_option('xero_refresh_token'));
+        
+        if (empty($access_token) || empty($refresh_token)) {
             wp_send_json_error('Not connected to Xero. Please authenticate first.');
         }
         
-        // This would contain the actual sync logic
-        // For now, we'll just return a success message
-        wp_send_json_success('Manual sync completed successfully! (This is a placeholder - actual sync logic would be implemented here)');
+        // Check if Jetpack CRM is configured
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_endpoint)) {
+            wp_send_json_error('Jetpack CRM not configured. Please set up API credentials first.');
+        }
+        
+        // Start sync process
+        $this->log_sync_message('Starting manual sync process...');
+        
+        $sync_results = array(
+            'contacts' => array('synced' => 0, 'errors' => 0),
+            'invoices' => array('synced' => 0, 'errors' => 0),
+            'payments' => array('synced' => 0, 'errors' => 0)
+        );
+        
+        try {
+            // Sync contacts
+            $this->log_sync_message('Syncing contacts from Xero...');
+            $contacts_result = $this->sync_contacts_from_xero();
+            $sync_results['contacts'] = $contacts_result;
+            
+            // Sync invoices
+            $this->log_sync_message('Syncing invoices from Xero...');
+            $invoices_result = $this->sync_invoices_from_xero();
+            $sync_results['invoices'] = $invoices_result;
+            
+            // Update sync statistics
+            $total_contacts = get_option('xero_synced_contacts_count', 0) + $contacts_result['synced'];
+            $total_invoices = get_option('xero_synced_invoices_count', 0) + $invoices_result['synced'];
+            
+            update_option('xero_synced_contacts_count', $total_contacts);
+            update_option('xero_synced_invoices_count', $total_invoices);
+            update_option('xero_last_sync', time());
+            
+            $this->log_sync_message('Manual sync completed successfully!');
+            
+            $message = sprintf(
+                'Sync completed! Contacts: %d synced, %d errors. Invoices: %d synced, %d errors.',
+                $contacts_result['synced'],
+                $contacts_result['errors'],
+                $invoices_result['synced'],
+                $invoices_result['errors']
+            );
+            
+            wp_send_json_success($message);
+            
+        } catch (Exception $e) {
+            $this->log_sync_message('Sync failed: ' . $e->getMessage());
+            wp_send_json_error('Sync failed: ' . $e->getMessage());
+        }
+    }
+    
+    private function sync_contacts_from_xero() {
+        $access_token = $this->decrypt_token(get_option('xero_access_token'));
+        $tenant_id = get_option('xero_tenant_id');
+        
+        if (empty($access_token) || empty($tenant_id)) {
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $synced = 0;
+        $errors = 0;
+        
+        // Fetch contacts from Xero
+        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Contacts', array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $access_token,
+                'Xero-tenant-id' => $tenant_id,
+                'Accept' => 'application/json'
+            ),
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            $this->log_sync_message('Failed to fetch contacts from Xero: ' . $response->get_error_message());
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code !== 200) {
+            $body = wp_remote_retrieve_body($response);
+            $this->log_sync_message('Xero API error (HTTP ' . $http_code . '): ' . $body);
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (!isset($data['Contacts']) || !is_array($data['Contacts'])) {
+            $this->log_sync_message('Invalid response format from Xero API');
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $this->log_sync_message('Found ' . count($data['Contacts']) . ' contacts in Xero');
+        
+        // Process each contact
+        foreach ($data['Contacts'] as $xero_contact) {
+            try {
+                $result = $this->sync_single_contact($xero_contact);
+                if ($result) {
+                    $synced++;
+                } else {
+                    $errors++;
+                }
+            } catch (Exception $e) {
+                $this->log_sync_message('Error syncing contact ' . $xero_contact['Name'] . ': ' . $e->getMessage());
+                $errors++;
+            }
+        }
+        
+        return array('synced' => $synced, 'errors' => $errors);
+    }
+    
+    private function sync_single_contact($xero_contact) {
+        // Check if contact already exists in Jetpack CRM
+        $existing_contact = $this->find_jetpack_contact_by_xero_id($xero_contact['ContactID']);
+        
+        $contact_data = array(
+            'fname' => $this->extract_first_name($xero_contact['Name']),
+            'lname' => $this->extract_last_name($xero_contact['Name']),
+            'email' => isset($xero_contact['EmailAddress']) ? $xero_contact['EmailAddress'] : '',
+            'tel' => isset($xero_contact['Phones']) && !empty($xero_contact['Phones']) ? $xero_contact['Phones'][0]['PhoneNumber'] : '',
+            'company' => isset($xero_contact['Name']) ? $xero_contact['Name'] : '',
+            'addr1' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['AddressLine1'] : '',
+            'addr2' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['AddressLine2'] : '',
+            'city' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['City'] : '',
+            'county' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['Region'] : '',
+            'postcode' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['PostalCode'] : '',
+            'country' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['Country'] : '',
+            'xero_contact_id' => $xero_contact['ContactID'] // Custom field for de-duplication
+        );
+        
+        if ($existing_contact) {
+            // Update existing contact
+            return $this->update_jetpack_contact($existing_contact['id'], $contact_data);
+        } else {
+            // Create new contact
+            return $this->create_jetpack_contact($contact_data);
+        }
+    }
+    
+    private function sync_invoices_from_xero() {
+        $access_token = $this->decrypt_token(get_option('xero_access_token'));
+        $tenant_id = get_option('xero_tenant_id');
+        
+        if (empty($access_token) || empty($tenant_id)) {
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $synced = 0;
+        $errors = 0;
+        
+        // Fetch invoices from Xero (last 12 months)
+        $from_date = date('Y-m-d', strtotime('-12 months'));
+        $to_date = date('Y-m-d');
+        
+        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Invoices?where=Date>=' . $from_date . '&where=Date<=' . $to_date, array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $access_token,
+                'Xero-tenant-id' => $tenant_id,
+                'Accept' => 'application/json'
+            ),
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            $this->log_sync_message('Failed to fetch invoices from Xero: ' . $response->get_error_message());
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code !== 200) {
+            $body = wp_remote_retrieve_body($response);
+            $this->log_sync_message('Xero API error (HTTP ' . $http_code . '): ' . $body);
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (!isset($data['Invoices']) || !is_array($data['Invoices'])) {
+            $this->log_sync_message('Invalid response format from Xero API');
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $this->log_sync_message('Found ' . count($data['Invoices']) . ' invoices in Xero');
+        
+        // Process each invoice
+        foreach ($data['Invoices'] as $xero_invoice) {
+            try {
+                $result = $this->sync_single_invoice($xero_invoice);
+                if ($result) {
+                    $synced++;
+                } else {
+                    $errors++;
+                }
+            } catch (Exception $e) {
+                $this->log_sync_message('Error syncing invoice ' . $xero_invoice['InvoiceNumber'] . ': ' . $e->getMessage());
+                $errors++;
+            }
+        }
+        
+        return array('synced' => $synced, 'errors' => $errors);
+    }
+    
+    private function sync_single_invoice($xero_invoice) {
+        // Check if transaction already exists in Jetpack CRM
+        $existing_transaction = $this->find_jetpack_transaction_by_xero_id($xero_invoice['InvoiceID']);
+        
+        // Get line item descriptions
+        $description = '';
+        if (isset($xero_invoice['LineItems']) && is_array($xero_invoice['LineItems'])) {
+            $descriptions = array();
+            foreach ($xero_invoice['LineItems'] as $line_item) {
+                if (isset($line_item['Description']) && !empty($line_item['Description'])) {
+                    $descriptions[] = $line_item['Description'];
+                }
+            }
+            $description = implode(', ', $descriptions);
+        }
+        
+        $transaction_data = array(
+            'title' => 'Invoice ' . $xero_invoice['InvoiceNumber'],
+            'type' => 'invoice',
+            'value' => isset($xero_invoice['Total']) ? $xero_invoice['Total'] : 0,
+            'currency' => isset($xero_invoice['CurrencyCode']) ? $xero_invoice['CurrencyCode'] : 'USD',
+            'date' => isset($xero_invoice['Date']) ? date('Y-m-d', strtotime($xero_invoice['Date'])) : date('Y-m-d'),
+            'due_date' => isset($xero_invoice['DueDate']) ? date('Y-m-d', strtotime($xero_invoice['DueDate'])) : null,
+            'status' => isset($xero_invoice['Status']) ? strtolower($xero_invoice['Status']) : 'draft',
+            'description' => $description,
+            'xero_invoice_id' => $xero_invoice['InvoiceID'],
+            'xero_invoice_number' => $xero_invoice['InvoiceNumber']
+        );
+        
+        if ($existing_transaction) {
+            // Update existing transaction
+            return $this->update_jetpack_transaction($existing_transaction['id'], $transaction_data);
+        } else {
+            // Create new transaction
+            return $this->create_jetpack_transaction($transaction_data);
+        }
+    }
+    
+    private function log_sync_message($message) {
+        $log_message = '[' . date('Y-m-d H:i:s') . '] ' . $message . PHP_EOL;
+        error_log($log_message, 3, WP_CONTENT_DIR . '/uploads/xero-sync.log');
+    }
+    
+    private function extract_first_name($full_name) {
+        $parts = explode(' ', trim($full_name));
+        return $parts[0];
+    }
+    
+    private function extract_last_name($full_name) {
+        $parts = explode(' ', trim($full_name));
+        if (count($parts) > 1) {
+            return implode(' ', array_slice($parts, 1));
+        }
+        return '';
+    }
+    
+    private function find_jetpack_contact_by_xero_id($xero_contact_id) {
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_endpoint)) {
+            return false;
+        }
+        
+        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers', array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $jetpack_api_key,
+                'Content-Type' => 'application/json'
+            ),
+            'timeout' => 15
+        ));
+        
+        if (is_wp_error($response)) {
+            return false;
+        }
+        
+        $customers = json_decode(wp_remote_retrieve_body($response), true);
+        
+        if (is_array($customers)) {
+            foreach ($customers as $customer) {
+                if (isset($customer['xero_contact_id']) && $customer['xero_contact_id'] === $xero_contact_id) {
+                    return $customer;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    private function find_jetpack_transaction_by_xero_id($xero_invoice_id) {
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_endpoint)) {
+            return false;
+        }
+        
+        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions', array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $jetpack_api_key,
+                'Content-Type' => 'application/json'
+            ),
+            'timeout' => 15
+        ));
+        
+        if (is_wp_error($response)) {
+            return false;
+        }
+        
+        $transactions = json_decode(wp_remote_retrieve_body($response), true);
+        
+        if (is_array($transactions)) {
+            foreach ($transactions as $transaction) {
+                if (isset($transaction['xero_invoice_id']) && $transaction['xero_invoice_id'] === $xero_invoice_id) {
+                    return $transaction;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    private function create_jetpack_contact($contact_data) {
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_endpoint)) {
+            return false;
+        }
+        
+        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers', array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $jetpack_api_key,
+                'Content-Type' => 'application/json'
+            ),
+            'body' => json_encode($contact_data),
+            'timeout' => 15
+        ));
+        
+        if (is_wp_error($response)) {
+            $this->log_sync_message('Failed to create Jetpack contact: ' . $response->get_error_message());
+            return false;
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code >= 200 && $http_code < 300) {
+            $this->log_sync_message('Created Jetpack contact: ' . $contact_data['fname'] . ' ' . $contact_data['lname']);
+            return true;
+        } else {
+            $body = wp_remote_retrieve_body($response);
+            $this->log_sync_message('Failed to create Jetpack contact (HTTP ' . $http_code . '): ' . $body);
+            return false;
+        }
+    }
+    
+    private function update_jetpack_contact($contact_id, $contact_data) {
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_endpoint)) {
+            return false;
+        }
+        
+        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers/' . $contact_id, array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $jetpack_api_key,
+                'Content-Type' => 'application/json'
+            ),
+            'body' => json_encode($contact_data),
+            'timeout' => 15
+        ));
+        
+        if (is_wp_error($response)) {
+            $this->log_sync_message('Failed to update Jetpack contact: ' . $response->get_error_message());
+            return false;
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code >= 200 && $http_code < 300) {
+            $this->log_sync_message('Updated Jetpack contact: ' . $contact_data['fname'] . ' ' . $contact_data['lname']);
+            return true;
+        } else {
+            $body = wp_remote_retrieve_body($response);
+            $this->log_sync_message('Failed to update Jetpack contact (HTTP ' . $http_code . '): ' . $body);
+            return false;
+        }
+    }
+    
+    private function create_jetpack_transaction($transaction_data) {
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_endpoint)) {
+            return false;
+        }
+        
+        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions', array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $jetpack_api_key,
+                'Content-Type' => 'application/json'
+            ),
+            'body' => json_encode($transaction_data),
+            'timeout' => 15
+        ));
+        
+        if (is_wp_error($response)) {
+            $this->log_sync_message('Failed to create Jetpack transaction: ' . $response->get_error_message());
+            return false;
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code >= 200 && $http_code < 300) {
+            $this->log_sync_message('Created Jetpack transaction: ' . $transaction_data['title']);
+            return true;
+        } else {
+            $body = wp_remote_retrieve_body($response);
+            $this->log_sync_message('Failed to create Jetpack transaction (HTTP ' . $http_code . '): ' . $body);
+            return false;
+        }
+    }
+    
+    private function update_jetpack_transaction($transaction_id, $transaction_data) {
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_endpoint)) {
+            return false;
+        }
+        
+        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions/' . $transaction_id, array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $jetpack_api_key,
+                'Content-Type' => 'application/json'
+            ),
+            'body' => json_encode($transaction_data),
+            'timeout' => 15
+        ));
+        
+        if (is_wp_error($response)) {
+            $this->log_sync_message('Failed to update Jetpack transaction: ' . $response->get_error_message());
+            return false;
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code >= 200 && $http_code < 300) {
+            $this->log_sync_message('Updated Jetpack transaction: ' . $transaction_data['title']);
+            return true;
+        } else {
+            $body = wp_remote_retrieve_body($response);
+            $this->log_sync_message('Failed to update Jetpack transaction (HTTP ' . $http_code . '): ' . $body);
+            return false;
+        }
     }
     
     public function oauth_callback() {
