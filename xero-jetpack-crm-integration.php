@@ -63,9 +63,14 @@ class Xero_Jetpack_CRM_Integration {
         add_action('wp_ajax_xero_get_stats', array($this, 'get_stats'));
         add_action('wp_ajax_xero_verify_credentials', array($this, 'verify_credentials_ajax'));
         add_action('wp_ajax_xero_test_token_exchange', array($this, 'test_token_exchange_ajax'));
+        add_action('wp_ajax_xero_get_sync_progress', array($this, 'get_sync_progress_ajax'));
+        add_action('wp_ajax_xero_test_sync', array($this, 'test_sync_ajax'));
         
         // Add OAuth callback handler
         add_action('init', array($this, 'handle_oauth_callback'));
+        
+        // Background sync hook
+        add_action('xero_background_sync', array($this, 'background_sync'));
         
         // Activation hook
         register_activation_hook(__FILE__, array($this, 'activate'));
@@ -448,6 +453,10 @@ class Xero_Jetpack_CRM_Integration {
                             </div>
                             
                             <div class="actions-section">
+                                <button id="test-sync" class="btn btn-outline" style="background: #17a2b8; color: white; border-color: #17a2b8;">
+                                    <span class="material-icons">bug_report</span>
+                                    Test Sync
+                                </button>
                                 <button id="manual-sync" class="btn btn-primary">
                                     <span class="material-icons">sync</span>
                                     Manual Sync
@@ -460,6 +469,21 @@ class Xero_Jetpack_CRM_Integration {
                                     <span class="material-icons">description</span>
                                     View Logs
                                 </button>
+                            </div>
+                            
+                            <!-- Sync Progress Section -->
+                            <div id="sync-progress-section" class="sync-progress-section" style="display: none; margin-top: 20px;">
+                                <h4>Sync Progress</h4>
+                                <div class="progress-container">
+                                    <div class="progress-bar">
+                                        <div id="progress-fill" class="progress-fill" style="width: 0%;"></div>
+                                    </div>
+                                    <div id="progress-text" class="progress-text">Ready to sync</div>
+                                </div>
+                                <div id="sync-details" class="sync-details">
+                                    <div id="current-item" class="current-item"></div>
+                                    <div id="sync-stats" class="sync-stats"></div>
+                                </div>
                             </div>
                         </div>
                     <?php endif; ?>
@@ -1173,9 +1197,11 @@ class Xero_Jetpack_CRM_Integration {
             $('#manual-sync').on('click', function() {
                 if (confirm('This will start a manual sync from Xero to Jetpack CRM. Continue?')) {
                     var $button = $(this);
-                    $button.prop('disabled', true);
-                    $button.find('.material-spinner').show();
-                    $button.find('.button-text').hide();
+                    var originalHtml = $button.html();
+                    $button.prop('disabled', true).html('<span class="material-icons spin">sync</span> Starting...');
+                    
+                    // Show progress section
+                    $('#sync-progress-section').show();
                     
                     $.ajax({
                         url: xeroJetpackCrm.ajaxUrl,
@@ -1186,23 +1212,119 @@ class Xero_Jetpack_CRM_Integration {
                         },
                         success: function(response) {
                             if (response.success) {
-                                showNotification('Manual sync completed successfully!', 'success');
-                                updateStats();
+                                showNotification('Sync started in background. Check progress below.', 'success');
+                                // Start polling for progress
+                                startProgressPolling();
                             } else {
                                 showNotification('Manual sync failed: ' + response.data, 'error');
+                                $('#sync-progress-section').hide();
                             }
+                            $button.html(originalHtml).prop('disabled', false);
                         },
                         error: function() {
                             showNotification('Manual sync failed due to network error', 'error');
-                        },
-                        complete: function() {
-                            $button.find('.material-spinner').hide();
-                            $button.find('.button-text').show();
-                            $button.prop('disabled', false);
+                            $('#sync-progress-section').hide();
+                            $button.html(originalHtml).prop('disabled', false);
                         }
                     });
                 }
             });
+            
+            // Test Sync Button
+            $('#test-sync').on('click', function() {
+                var $button = $(this);
+                var originalHtml = $button.html();
+                $button.prop('disabled', true).html('<span class="material-icons spin">bug_report</span> Testing...');
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_test_sync',
+                        nonce: xeroJetpackCrm.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            var data = response.data;
+                            var message = 'Test completed! Xero: ' + data.xero_contacts + ' contacts, Jetpack CRM: ' + data.jetpack_contacts + ' contacts';
+                            showNotification(message, 'success');
+                            console.log('Test Sync Results:', data);
+                        } else {
+                            showNotification('Test failed: ' + response.data, 'error');
+                            console.error('Test Sync Error:', response.data);
+                        }
+                        $button.html(originalHtml).prop('disabled', false);
+                    },
+                    error: function() {
+                        showNotification('Test failed due to network error', 'error');
+                        $button.html(originalHtml).prop('disabled', false);
+                    }
+                });
+            });
+            
+            // Progress polling function
+            function startProgressPolling() {
+                var pollInterval = setInterval(function() {
+                    $.ajax({
+                        url: xeroJetpackCrm.ajaxUrl,
+                        type: 'POST',
+                        data: {
+                            action: 'xero_get_sync_progress',
+                            nonce: xeroJetpackCrm.nonce
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                updateProgressDisplay(response.data);
+                                
+                                // Stop polling if sync is completed or errored
+                                if (response.data.status === 'completed' || response.data.status === 'error') {
+                                    clearInterval(pollInterval);
+                                    if (response.data.status === 'completed') {
+                                        showNotification('Sync completed successfully!', 'success');
+                                        updateXeroStatus(); // Refresh stats
+                                    } else {
+                                        showNotification('Sync failed: ' + response.data.current_step, 'error');
+                                    }
+                                }
+                            }
+                        },
+                        error: function() {
+                            console.log('Failed to get sync progress');
+                        }
+                    });
+                }, 1000); // Poll every second
+            }
+            
+            // Update progress display
+            function updateProgressDisplay(progress) {
+                // Update progress bar
+                $('#progress-fill').css('width', progress.progress + '%');
+                $('#progress-text').text(progress.current_step);
+                
+                // Update current item
+                var currentItem = '';
+                if (progress.current_contact) {
+                    currentItem = 'Syncing contact: <strong>' + progress.current_contact + '</strong>';
+                } else if (progress.current_invoice) {
+                    currentItem = 'Syncing invoice: <strong>' + progress.current_invoice + '</strong>';
+                }
+                $('#current-item').html(currentItem);
+                
+                // Update stats
+                var stats = '';
+                if (progress.total_contacts > 0) {
+                    stats += 'Contacts: ' + progress.synced_contacts + '/' + progress.total_contacts;
+                }
+                if (progress.total_invoices > 0) {
+                    if (stats) stats += ' | ';
+                    stats += 'Invoices: ' + progress.synced_invoices + '/' + progress.total_invoices;
+                }
+                if (progress.errors > 0) {
+                    if (stats) stats += ' | ';
+                    stats += 'Errors: ' + progress.errors;
+                }
+                $('#sync-stats').text(stats);
+            }
             
             // Sync Settings Modal
             $('#sync-settings').on('click', function() {
@@ -3335,25 +3457,41 @@ spl_autoload_register(function ($class) {
             wp_send_json_error('Jetpack CRM not configured. Please set up API credentials first.');
         }
         
-        // Start sync process
-        $this->log_sync_message('Starting manual sync process...');
+        // Initialize sync progress
+        update_option('xero_sync_progress', array(
+            'status' => 'starting',
+            'current_step' => 'Initializing...',
+            'progress' => 0,
+            'total_contacts' => 0,
+            'total_invoices' => 0,
+            'synced_contacts' => 0,
+            'synced_invoices' => 0,
+            'errors' => 0,
+            'current_contact' => '',
+            'current_invoice' => ''
+        ));
         
-        $sync_results = array(
-            'contacts' => array('synced' => 0, 'errors' => 0),
-            'invoices' => array('synced' => 0, 'errors' => 0),
-            'payments' => array('synced' => 0, 'errors' => 0)
-        );
+        // Start background sync process
+        wp_schedule_single_event(time(), 'xero_background_sync');
+        
+        wp_send_json_success('Sync started in background. Check progress below.');
+    }
+    
+    public function background_sync() {
+        $this->log_sync_message('Starting background sync process...');
+        
+        // Update progress
+        $this->update_sync_progress('fetching_contacts', 'Fetching contacts from Xero...', 10);
         
         try {
             // Sync contacts
-            $this->log_sync_message('Syncing contacts from Xero...');
-            $contacts_result = $this->sync_contacts_from_xero();
-            $sync_results['contacts'] = $contacts_result;
+            $contacts_result = $this->sync_contacts_from_xero_with_progress();
+            
+            // Update progress
+            $this->update_sync_progress('fetching_invoices', 'Fetching invoices from Xero...', 50);
             
             // Sync invoices
-            $this->log_sync_message('Syncing invoices from Xero...');
-            $invoices_result = $this->sync_invoices_from_xero();
-            $sync_results['invoices'] = $invoices_result;
+            $invoices_result = $this->sync_invoices_from_xero_with_progress();
             
             // Update sync statistics
             $total_contacts = get_option('xero_synced_contacts_count', 0) + $contacts_result['synced'];
@@ -3363,22 +3501,153 @@ spl_autoload_register(function ($class) {
             update_option('xero_synced_invoices_count', $total_invoices);
             update_option('xero_last_sync', time());
             
-            $this->log_sync_message('Manual sync completed successfully!');
+            // Mark as completed
+            $this->update_sync_progress('completed', 'Sync completed successfully!', 100);
             
-            $message = sprintf(
-                'Sync completed! Contacts: %d synced, %d errors. Invoices: %d synced, %d errors.',
-                $contacts_result['synced'],
-                $contacts_result['errors'],
-                $invoices_result['synced'],
-                $invoices_result['errors']
-            );
-            
-            wp_send_json_success($message);
+            $this->log_sync_message('Background sync completed successfully!');
             
         } catch (Exception $e) {
-            $this->log_sync_message('Sync failed: ' . $e->getMessage());
-            wp_send_json_error('Sync failed: ' . $e->getMessage());
+            $this->update_sync_progress('error', 'Sync failed: ' . $e->getMessage(), 0);
+            $this->log_sync_message('Background sync failed: ' . $e->getMessage());
         }
+    }
+    
+    public function get_sync_progress_ajax() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $progress = get_option('xero_sync_progress', array(
+            'status' => 'idle',
+            'current_step' => 'Ready to sync',
+            'progress' => 0,
+            'total_contacts' => 0,
+            'total_invoices' => 0,
+            'synced_contacts' => 0,
+            'synced_invoices' => 0,
+            'errors' => 0,
+            'current_contact' => '',
+            'current_invoice' => ''
+        ));
+        
+        wp_send_json_success($progress);
+    }
+    
+    private function update_sync_progress($status, $current_step, $progress, $additional_data = array()) {
+        $current_progress = get_option('xero_sync_progress', array());
+        
+        $current_progress['status'] = $status;
+        $current_progress['current_step'] = $current_step;
+        $current_progress['progress'] = $progress;
+        $current_progress['timestamp'] = time();
+        
+        // Merge additional data
+        if (!empty($additional_data)) {
+            $current_progress = array_merge($current_progress, $additional_data);
+        }
+        
+        update_option('xero_sync_progress', $current_progress);
+    }
+    
+    public function test_sync_ajax() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $this->log_sync_message('=== TEST SYNC STARTED ===');
+        
+        // Test Xero connection
+        $access_token = $this->decrypt_token(get_option('xero_access_token'));
+        $tenant_id = get_option('xero_tenant_id');
+        
+        $this->log_sync_message('Access Token: ' . (empty($access_token) ? 'MISSING' : 'PRESENT (' . strlen($access_token) . ' chars)'));
+        $this->log_sync_message('Tenant ID: ' . (empty($tenant_id) ? 'MISSING' : $tenant_id));
+        
+        if (empty($access_token) || empty($tenant_id)) {
+            wp_send_json_error('Xero not properly connected. Access token or tenant ID missing.');
+        }
+        
+        // Test Xero API call
+        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Contacts', array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $access_token,
+                'Xero-tenant-id' => $tenant_id,
+                'Accept' => 'application/json'
+            ),
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            $this->log_sync_message('Xero API Error: ' . $response->get_error_message());
+            wp_send_json_error('Xero API Error: ' . $response->get_error_message());
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        $this->log_sync_message('Xero API Response Code: ' . $http_code);
+        $this->log_sync_message('Xero API Response Body: ' . substr($body, 0, 500) . '...');
+        
+        if ($http_code !== 200) {
+            wp_send_json_error('Xero API returned HTTP ' . $http_code . ': ' . $body);
+        }
+        
+        $data = json_decode($body, true);
+        $contact_count = isset($data['Contacts']) ? count($data['Contacts']) : 0;
+        
+        $this->log_sync_message('Found ' . $contact_count . ' contacts in Xero');
+        
+        // Test Jetpack CRM connection
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        $this->log_sync_message('Jetpack API Key: ' . (empty($jetpack_api_key) ? 'MISSING' : 'PRESENT (' . strlen($jetpack_api_key) . ' chars)'));
+        $this->log_sync_message('Jetpack Endpoint: ' . (empty($jetpack_endpoint) ? 'MISSING' : $jetpack_endpoint));
+        
+        if (empty($jetpack_api_key) || empty($jetpack_endpoint)) {
+            wp_send_json_error('Jetpack CRM not properly configured. API key or endpoint missing.');
+        }
+        
+        // Test Jetpack CRM API call
+        $jetpack_response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers', array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $jetpack_api_key,
+                'Content-Type' => 'application/json'
+            ),
+            'timeout' => 15
+        ));
+        
+        if (is_wp_error($jetpack_response)) {
+            $this->log_sync_message('Jetpack CRM API Error: ' . $jetpack_response->get_error_message());
+            wp_send_json_error('Jetpack CRM API Error: ' . $jetpack_response->get_error_message());
+        }
+        
+        $jetpack_http_code = wp_remote_retrieve_response_code($jetpack_response);
+        $jetpack_body = wp_remote_retrieve_body($jetpack_response);
+        
+        $this->log_sync_message('Jetpack CRM API Response Code: ' . $jetpack_http_code);
+        $this->log_sync_message('Jetpack CRM API Response Body: ' . substr($jetpack_body, 0, 500) . '...');
+        
+        if ($jetpack_http_code !== 200) {
+            wp_send_json_error('Jetpack CRM API returned HTTP ' . $jetpack_http_code . ': ' . $jetpack_body);
+        }
+        
+        $jetpack_data = json_decode($jetpack_body, true);
+        $jetpack_contact_count = is_array($jetpack_data) ? count($jetpack_data) : 0;
+        
+        $this->log_sync_message('Found ' . $jetpack_contact_count . ' existing contacts in Jetpack CRM');
+        $this->log_sync_message('=== TEST SYNC COMPLETED ===');
+        
+        wp_send_json_success(array(
+            'xero_contacts' => $contact_count,
+            'jetpack_contacts' => $jetpack_contact_count,
+            'xero_status' => 'Connected',
+            'jetpack_status' => 'Connected'
+        ));
     }
     
     private function sync_contacts_from_xero() {
@@ -3435,6 +3704,157 @@ spl_autoload_register(function ($class) {
                 }
             } catch (Exception $e) {
                 $this->log_sync_message('Error syncing contact ' . $xero_contact['Name'] . ': ' . $e->getMessage());
+                $errors++;
+            }
+        }
+        
+        return array('synced' => $synced, 'errors' => $errors);
+    }
+    
+    private function sync_contacts_from_xero_with_progress() {
+        $access_token = $this->decrypt_token(get_option('xero_access_token'));
+        $tenant_id = get_option('xero_tenant_id');
+        
+        if (empty($access_token) || empty($tenant_id)) {
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $synced = 0;
+        $errors = 0;
+        
+        // Fetch contacts from Xero
+        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Contacts', array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $access_token,
+                'Xero-tenant-id' => $tenant_id,
+                'Accept' => 'application/json'
+            ),
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            $this->log_sync_message('Failed to fetch contacts from Xero: ' . $response->get_error_message());
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code !== 200) {
+            $body = wp_remote_retrieve_body($response);
+            $this->log_sync_message('Xero API error (HTTP ' . $http_code . '): ' . $body);
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (!isset($data['Contacts']) || !is_array($data['Contacts'])) {
+            $this->log_sync_message('Invalid response format from Xero API');
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $total_contacts = count($data['Contacts']);
+        $this->log_sync_message('Found ' . $total_contacts . ' contacts in Xero');
+        
+        // Update progress with total count
+        $this->update_sync_progress('syncing_contacts', 'Syncing contacts...', 20, array(
+            'total_contacts' => $total_contacts,
+            'synced_contacts' => 0
+        ));
+        
+        // Process each contact
+        foreach ($data['Contacts'] as $index => $xero_contact) {
+            try {
+                $this->update_sync_progress('syncing_contacts', 'Syncing contacts...', 20 + (($index / $total_contacts) * 30), array(
+                    'current_contact' => $xero_contact['Name'],
+                    'synced_contacts' => $synced,
+                    'total_contacts' => $total_contacts
+                ));
+                
+                $result = $this->sync_single_contact($xero_contact);
+                if ($result) {
+                    $synced++;
+                } else {
+                    $errors++;
+                }
+            } catch (Exception $e) {
+                $this->log_sync_message('Error syncing contact ' . $xero_contact['Name'] . ': ' . $e->getMessage());
+                $errors++;
+            }
+        }
+        
+        return array('synced' => $synced, 'errors' => $errors);
+    }
+    
+    private function sync_invoices_from_xero_with_progress() {
+        $access_token = $this->decrypt_token(get_option('xero_access_token'));
+        $tenant_id = get_option('xero_tenant_id');
+        
+        if (empty($access_token) || empty($tenant_id)) {
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $synced = 0;
+        $errors = 0;
+        
+        // Fetch invoices from Xero (last 12 months)
+        $from_date = date('Y-m-d', strtotime('-12 months'));
+        $to_date = date('Y-m-d');
+        
+        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Invoices?where=Date>=' . $from_date . '&where=Date<=' . $to_date, array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $access_token,
+                'Xero-tenant-id' => $tenant_id,
+                'Accept' => 'application/json'
+            ),
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            $this->log_sync_message('Failed to fetch invoices from Xero: ' . $response->get_error_message());
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code !== 200) {
+            $body = wp_remote_retrieve_body($response);
+            $this->log_sync_message('Xero API error (HTTP ' . $http_code . '): ' . $body);
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (!isset($data['Invoices']) || !is_array($data['Invoices'])) {
+            $this->log_sync_message('Invalid response format from Xero API');
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $total_invoices = count($data['Invoices']);
+        $this->log_sync_message('Found ' . $total_invoices . ' invoices in Xero');
+        
+        // Update progress with total count
+        $this->update_sync_progress('syncing_invoices', 'Syncing invoices...', 50, array(
+            'total_invoices' => $total_invoices,
+            'synced_invoices' => 0
+        ));
+        
+        // Process each invoice
+        foreach ($data['Invoices'] as $index => $xero_invoice) {
+            try {
+                $this->update_sync_progress('syncing_invoices', 'Syncing invoices...', 50 + (($index / $total_invoices) * 40), array(
+                    'current_invoice' => $xero_invoice['InvoiceNumber'],
+                    'synced_invoices' => $synced,
+                    'total_invoices' => $total_invoices
+                ));
+                
+                $result = $this->sync_single_invoice($xero_invoice);
+                if ($result) {
+                    $synced++;
+                } else {
+                    $errors++;
+                }
+            } catch (Exception $e) {
+                $this->log_sync_message('Error syncing invoice ' . $xero_invoice['InvoiceNumber'] . ': ' . $e->getMessage());
                 $errors++;
             }
         }

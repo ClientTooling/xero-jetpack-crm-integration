@@ -2823,3 +2823,101 @@ input:checked + .toggle-slider:before {
 .xero-jetpack-crm-setup .card .button {
     margin-top: 10px;
 }
+
+/* Sync Progress Styles */
+.sync-progress-section {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin-top: 20px;
+}
+
+.sync-progress-section h4 {
+    margin: 0 0 15px 0;
+    color: #2c3e50;
+    font-size: 16px;
+}
+
+.progress-container {
+    margin-bottom: 15px;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 20px;
+    background: #e9ecef;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #28a745, #20c997);
+    border-radius: 10px;
+    transition: width 0.3s ease;
+    position: relative;
+}
+
+.progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.progress-text {
+    font-weight: 600;
+    color: #495057;
+    text-align: center;
+    font-size: 14px;
+}
+
+.sync-details {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.current-item {
+    flex: 1;
+    min-width: 200px;
+    font-size: 14px;
+    color: #6c757d;
+}
+
+.current-item strong {
+    color: #495057;
+}
+
+.sync-stats {
+    font-size: 12px;
+    color: #6c757d;
+    background: #e9ecef;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+/* Responsive Design for Progress */
+@media (max-width: 768px) {
+    .sync-details {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .current-item {
+        min-width: auto;
+    }
+}
