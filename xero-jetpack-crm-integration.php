@@ -403,6 +403,10 @@ class Xero_Jetpack_CRM_Integration {
                                 </div>
                                 
                                 <div class="form-actions">
+                                    <button id="save-xero-credentials" class="btn btn-primary" style="margin-right: 10px;">
+                                        <span class="material-icons">save</span>
+                                        Save Credentials
+                                    </button>
                                     <button id="verify-xero-credentials" class="btn btn-outline" style="margin-right: 10px;">
                                         <span class="material-icons">verified_user</span>
                                         Verify Credentials
@@ -744,6 +748,48 @@ class Xero_Jetpack_CRM_Integration {
                     },
                     error: function(xhr, status, error) {
                         showTestResult('#xero-test-result', 'Test failed: ' + error, 'error');
+                    }
+                });
+            });
+            
+            // Save Xero Credentials
+            $('#save-xero-credentials').on('click', function() {
+                var $button = $(this);
+                var originalHtml = $button.html();
+                $button.prop('disabled', true);
+                $button.html('<span class="material-icons">sync</span>Saving...');
+                
+                var clientId = $('#xero_client_id').val();
+                var clientSecret = $('#xero_client_secret').val();
+                
+                if (!clientId || !clientSecret) {
+                    showNotification('Please enter both Client ID and Client Secret.', 'error');
+                    $button.html(originalHtml).prop('disabled', false);
+                    return;
+                }
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_save_credentials',
+                        nonce: xeroJetpackCrm.nonce,
+                        xero_client_id: clientId,
+                        xero_client_secret: clientSecret
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            showNotification('Xero credentials saved successfully!', 'success');
+                            // Update the connect button state
+                            updateXeroToggleButton(false);
+                        } else {
+                            showNotification('Failed to save credentials: ' + response.data, 'error');
+                        }
+                        $button.html(originalHtml).prop('disabled', false);
+                    },
+                    error: function() {
+                        showNotification('Failed to save credentials due to network error', 'error');
+                        $button.html(originalHtml).prop('disabled', false);
                     }
                 });
             });
