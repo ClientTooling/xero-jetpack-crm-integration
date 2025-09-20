@@ -59,6 +59,7 @@ class Xero_Jetpack_CRM_Integration {
         add_action('wp_ajax_xero_save_sync_settings', array($this, 'save_sync_settings'));
         add_action('wp_ajax_xero_refresh_token', array($this, 'refresh_xero_token_ajax'));
         add_action('wp_ajax_xero_get_status', array($this, 'get_xero_status_ajax'));
+        add_action('wp_ajax_xero_get_auth_url', array($this, 'get_xero_auth_url_ajax'));
         add_action('wp_ajax_xero_get_stats', array($this, 'get_stats'));
         
         // Activation hook
@@ -146,8 +147,8 @@ class Xero_Jetpack_CRM_Integration {
             $dependencies_status = $this->check_dependencies_status();
             
             // Check Xero connection more thoroughly
-            $xero_refresh_token = get_option('xero_refresh_token');
-            $xero_access_token = get_option('xero_access_token');
+            $xero_refresh_token = $this->decrypt_token(get_option('xero_refresh_token'));
+            $xero_access_token = $this->decrypt_token(get_option('xero_access_token'));
             $xero_token_expires = get_option('xero_token_expires', 0);
             $xero_connected = !empty($xero_refresh_token) && !empty($xero_access_token);
             
@@ -752,20 +753,25 @@ class Xero_Jetpack_CRM_Integration {
                     $button.prop('disabled', true);
                     $button.html('<span class="material-icons">sync</span>Connecting...');
                     
-                    // Redirect to Xero OAuth
-                    var redirectUri = encodeURIComponent($('#redirect_uri').val());
-                    var state = 'connect-xero|' + Math.random().toString(36).substring(7);
-                    var authUrl = 'https://login.xero.com/identity/connect/authorize?' +
-                        'response_type=code&' +
-                        'client_id=' + clientId + '&' +
-                        'redirect_uri=' + redirectUri + '&' +
-                        'scope=openid profile email accounting.transactions accounting.contacts.read offline_access&' +
-                        'state=' + encodeURIComponent(state);
-                    
-                    // Log the redirect for debugging
-                    console.log('Redirecting to Xero OAuth:', authUrl);
-                    
-                    window.location.href = authUrl;
+                    // Redirect to Xero OAuth using server-generated URL
+                    $.ajax({
+                        url: xeroJetpackCrm.ajaxUrl,
+                        type: 'POST',
+                        data: {
+                            action: 'xero_get_auth_url',
+                            nonce: xeroJetpackCrm.nonce
+                        },
+                        success: function(response) {
+                            if (response.success) {
+                                window.location.href = response.data.auth_url;
+                            } else {
+                                alert('Failed to generate authorization URL: ' + response.data);
+                            }
+                        },
+                        error: function() {
+                            alert('Failed to generate authorization URL');
+                        }
+                    });
                 } else if (action === 'disconnect') {
                     // Disconnect from Xero
                     if (confirm('This will disconnect your Xero account. Continue?')) {
@@ -3243,10 +3249,8 @@ spl_autoload_register(function ($class) {
             error_log('OAuth Callback - Token exchange response: ' . $body);
             
             if (isset($data['access_token'])) {
-                // Save tokens
-                update_option('xero_access_token', $data['access_token']);
-                update_option('xero_refresh_token', $data['refresh_token']);
-                update_option('xero_token_expires', time() + $data['expires_in']);
+                // Encrypt and save tokens securely
+                $this->save_encrypted_tokens($data);
                 update_option('xero_connected_at', time());
                 
                 // Fetch basic organization info to verify connection
@@ -3314,10 +3318,8 @@ spl_autoload_register(function ($class) {
                 error_log('OAuth Callback (Fallback) - Token exchange response: ' . $body);
                 
                 if (isset($data['access_token'])) {
-                    // Save tokens
-                    update_option('xero_access_token', $data['access_token']);
-                    update_option('xero_refresh_token', $data['refresh_token']);
-                    update_option('xero_token_expires', time() + $data['expires_in']);
+                    // Encrypt and save tokens securely
+                    $this->save_encrypted_tokens($data);
                     update_option('xero_connected_at', time());
                     
                     // Fetch basic organization info to verify connection
@@ -3342,8 +3344,64 @@ spl_autoload_register(function ($class) {
         }
     }
     
+    public function get_xero_authorization_url() {
+        $client_id = get_option('xero_client_id');
+        $redirect_uri = admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback');
+        $state = 'connect-xero|' . wp_generate_password(32, false);
+        
+        $params = array(
+            'response_type' => 'code',
+            'client_id' => $client_id,
+            'redirect_uri' => $redirect_uri,
+            'scope' => 'accounting.contacts accounting.transactions offline_access',
+            'state' => $state
+        );
+        
+        return 'https://login.xero.com/identity/connect/authorize?' . http_build_query($params);
+    }
+    
+    private function save_encrypted_tokens($token_data) {
+        // Encrypt tokens before storing
+        $access_token = $this->encrypt_token($token_data['access_token']);
+        $refresh_token = isset($token_data['refresh_token']) ? $this->encrypt_token($token_data['refresh_token']) : '';
+        $expires_in = isset($token_data['expires_in']) ? time() + $token_data['expires_in'] : 0;
+        
+        update_option('xero_access_token', $access_token);
+        update_option('xero_refresh_token', $refresh_token);
+        update_option('xero_token_expires', $expires_in);
+        
+        error_log('Xero tokens encrypted and saved successfully');
+    }
+    
+    private function encrypt_token($token) {
+        // Use WordPress's built-in encryption if available, otherwise use a simple method
+        if (function_exists('wp_salt')) {
+            $key = wp_salt('secure_auth');
+            return base64_encode(openssl_encrypt($token, 'AES-256-CBC', $key, 0, substr(hash('sha256', $key), 0, 16)));
+        }
+        
+        // Fallback: simple base64 encoding (not secure for production)
+        return base64_encode($token);
+    }
+    
+    private function decrypt_token($encrypted_token) {
+        if (empty($encrypted_token)) {
+            return '';
+        }
+        
+        // Use WordPress's built-in encryption if available
+        if (function_exists('wp_salt')) {
+            $key = wp_salt('secure_auth');
+            $decrypted = openssl_decrypt(base64_decode($encrypted_token), 'AES-256-CBC', $key, 0, substr(hash('sha256', $key), 0, 16));
+            return $decrypted !== false ? $decrypted : '';
+        }
+        
+        // Fallback: simple base64 decoding
+        return base64_decode($encrypted_token);
+    }
+    
     private function fetch_xero_organization_info() {
-        $access_token = get_option('xero_access_token');
+        $access_token = $this->decrypt_token(get_option('xero_access_token'));
         if (empty($access_token)) {
             return false;
         }
@@ -3384,7 +3442,7 @@ spl_autoload_register(function ($class) {
     }
     
     private function refresh_xero_token() {
-        $refresh_token = get_option('xero_refresh_token');
+        $refresh_token = $this->decrypt_token(get_option('xero_refresh_token'));
         if (empty($refresh_token)) {
             return false;
         }
@@ -3414,13 +3472,7 @@ spl_autoload_register(function ($class) {
         $data = json_decode($body, true);
         
         if (isset($data['access_token'])) {
-            update_option('xero_access_token', $data['access_token']);
-            if (isset($data['refresh_token'])) {
-                update_option('xero_refresh_token', $data['refresh_token']);
-            }
-            if (isset($data['expires_in'])) {
-                update_option('xero_token_expires', time() + $data['expires_in']);
-            }
+            $this->save_encrypted_tokens($data);
             return true;
         }
         
@@ -3450,8 +3502,8 @@ spl_autoload_register(function ($class) {
             wp_die('Insufficient permissions');
         }
         
-        $access_token = get_option('xero_access_token');
-        $refresh_token = get_option('xero_refresh_token');
+        $access_token = $this->decrypt_token(get_option('xero_access_token'));
+        $refresh_token = $this->decrypt_token(get_option('xero_refresh_token'));
         $token_expires = get_option('xero_token_expires', 0);
         $tenant_name = get_option('xero_tenant_name', '');
         $tenant_type = get_option('xero_tenant_type', '');
@@ -3478,6 +3530,22 @@ spl_autoload_register(function ($class) {
             'minutes_left' => $minutes_left,
             'connected_at' => $connected_at
         ));
+    }
+    
+    public function get_xero_auth_url_ajax() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $client_id = get_option('xero_client_id');
+        if (empty($client_id)) {
+            wp_send_json_error('Xero Client ID not configured');
+        }
+        
+        $auth_url = $this->get_xero_authorization_url();
+        wp_send_json_success(array('auth_url' => $auth_url));
     }
     
     private function install_plugin_from_url($plugin_url) {
@@ -3541,7 +3609,7 @@ if (!class_exists("League\\OAuth2\\Client\\Provider\\Xero")) {
                 "response_type" => "code",
                 "client_id" => $this->options["clientId"] ?? "",
                 "redirect_uri" => $this->options["redirectUri"] ?? "",
-                "scope" => "openid profile email accounting.transactions accounting.contacts.read",
+                "scope" => "accounting.contacts accounting.transactions offline_access",
                 "state" => wp_generate_password(32, false)
             ], $options);
             
