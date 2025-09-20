@@ -160,11 +160,11 @@ class Xero_Jetpack_CRM_Integration {
         // Debug logging
         error_log('Xero Jetpack CRM - Step Debug: current_step=' . $current_step . ', xero_connected=' . ($xero_connected ? 'true' : 'false') . ', jetpack_configured=' . ($jetpack_configured ? 'true' : 'false') . ', show_connected_message=' . ($show_connected_message ? 'true' : 'false') . ', refresh_token=' . (!empty($xero_refresh_token) ? 'exists' : 'missing') . ', access_token=' . (!empty($xero_access_token) ? 'exists' : 'missing'));
         
-        // Validate step based on prerequisites - but be more lenient
+        // Validate step based on prerequisites - be very lenient for OAuth success
         if ($current_step > 1 && (!$jetpack_crm_status['installed'] || !$dependencies_status['installed'])) {
             $current_step = 1; // Force back to prerequisites if not ready
-        } elseif ($current_step == 3 && !$xero_connected) {
-            // Only force back to step 2 if we're trying to access step 3 without Xero connection
+        } elseif ($current_step == 3 && !$xero_connected && !$show_connected_message) {
+            // Only force back to step 2 if we're trying to access step 3 without Xero connection AND no OAuth success
             $current_step = 2;
         } elseif ($current_step == 4 && !$jetpack_configured) {
             // Only force back to step 3 if we're trying to access step 4 without Jetpack config
@@ -177,13 +177,13 @@ class Xero_Jetpack_CRM_Integration {
         }
         
         // Allow progression to step 3 if Xero is connected OR if we have success parameters
-        if (($xero_connected || $show_connected_message) && $current_step == 2 && isset($_GET['step']) && $_GET['step'] == '3') {
+        if (($xero_connected || $show_connected_message) && isset($_GET['step']) && $_GET['step'] == '3') {
             $current_step = 3;
         }
         
-        // Temporary bypass for step 3 if coming from OAuth success (for debugging)
-        if ($show_connected_message && isset($_GET['step']) && $_GET['step'] == '3') {
-            $current_step = 3;
+        // Allow progression to step 4 if Jetpack is configured OR if we have success parameters
+        if (($jetpack_configured || $show_connected_message) && isset($_GET['step']) && $_GET['step'] == '4') {
+            $current_step = 4;
         }
         ?>
         <div class="wrap">
@@ -245,11 +245,19 @@ class Xero_Jetpack_CRM_Integration {
             if (window.location.search.includes('connected=1') && window.location.search.includes('success=1')) {
                 // Show connected button and next navigation
                 $('#xero-connected-status').show();
+                $('#disconnect-xero-from-config').show();
                 $('#xero-next-navigation').show();
                 $('#connect-xero').hide();
                 
                 // Show success message
                 showNotification('Xero connected successfully! You can now proceed to the next step.', 'success');
+                
+                // Auto-redirect to step 3 after 3 seconds if we're still on step 2
+                setTimeout(function() {
+                    if (window.location.search.includes('step=2') || !window.location.search.includes('step=')) {
+                        window.location.href = '<?php echo admin_url('options-general.php?page=xero-jetpack-crm-integration&step=3'); ?>';
+                    }
+                }, 3000);
             }
             
             // Install Jetpack CRM
@@ -452,7 +460,7 @@ class Xero_Jetpack_CRM_Integration {
             });
             
             // Disconnect Xero
-            $('#disconnect-xero').on('click', function() {
+            $('#disconnect-xero, #disconnect-xero-from-config').on('click', function() {
                 if (confirm('This will disconnect your Xero account. Continue?')) {
                     $.ajax({
                         url: xeroJetpackCrm.ajaxUrl,
@@ -462,7 +470,13 @@ class Xero_Jetpack_CRM_Integration {
                             nonce: xeroJetpackCrm.nonce
                         },
                         success: function(response) {
-                            location.reload();
+                            showNotification('Xero disconnected successfully!', 'success');
+                            setTimeout(function() {
+                                location.reload();
+                            }, 1000);
+                        },
+                        error: function() {
+                            showNotification('Failed to disconnect Xero account', 'error');
                         }
                     });
                 }
@@ -825,6 +839,7 @@ class Xero_Jetpack_CRM_Integration {
                         if (response.success) {
                             $('#connect-xero').show();
                             $('#xero-connected-status').show();
+                            $('#disconnect-xero-from-config').show();
                             $('#xero-next-navigation').show();
                             showTestResult('#xero-test-result', 'Credentials saved successfully!', 'success');
                             showNotification('Credentials saved successfully!', 'success');
@@ -871,6 +886,7 @@ class Xero_Jetpack_CRM_Integration {
                             showTestResult('#xero-test-result', 'Credentials are valid! You can now connect to Xero.', 'success');
                             $('#connect-xero').show();
                             $('#xero-connected-status').show();
+                            $('#disconnect-xero-from-config').show();
                             $('#xero-next-navigation').show();
                             showNotification('Credentials are valid! You can now connect to Xero.', 'success');
                         } else {
@@ -1142,6 +1158,10 @@ class Xero_Jetpack_CRM_Integration {
                         <button id="xero-connected-status" class="btn btn-connected" style="display: none;">
                             <span class="dashicons dashicons-yes-alt"></span>
                             <span class="btn-text">Connected</span>
+                        </button>
+                        <button id="disconnect-xero-from-config" class="btn btn-danger" style="display: none;">
+                            <span class="dashicons dashicons-no-alt"></span>
+                            <span class="btn-text">Disconnect</span>
                         </button>
                     </div>
                     
