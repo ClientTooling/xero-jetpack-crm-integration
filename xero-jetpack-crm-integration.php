@@ -145,9 +145,20 @@ class Xero_Jetpack_CRM_Integration {
         $xero_connected = !empty(get_option('xero_refresh_token'));
         $jetpack_configured = !empty(get_option('jetpack_crm_api_key')) && !empty(get_option('jetpack_crm_endpoint'));
         
-        // Determine current step
-        $current_step = 1;
-        if ($jetpack_crm_status['installed'] && $dependencies_status['installed']) {
+        // Determine current step - check URL parameter first
+        $current_step = isset($_GET['step']) ? intval($_GET['step']) : 1;
+        
+        // Validate step based on prerequisites
+        if ($current_step > 1 && (!$jetpack_crm_status['installed'] || !$dependencies_status['installed'])) {
+            $current_step = 1; // Force back to prerequisites if not ready
+        } elseif ($current_step > 2 && !$xero_connected) {
+            $current_step = 2; // Force back to Xero config if not connected
+        } elseif ($current_step > 3 && !$jetpack_configured) {
+            $current_step = 3; // Force back to Jetpack config if not configured
+        }
+        
+        // Auto-advance if prerequisites are met
+        if ($current_step == 1 && $jetpack_crm_status['installed'] && $dependencies_status['installed']) {
             $current_step = 2; // Xero configuration
             if ($xero_connected) {
                 $current_step = 3; // Jetpack CRM configuration
@@ -164,21 +175,25 @@ class Xero_Jetpack_CRM_Integration {
             <div class="xero-jetpack-crm-wizard">
                 <!-- Progress Steps -->
                 <div class="wizard-progress">
-                    <div class="step <?php echo $current_step >= 1 ? 'active' : ''; ?> <?php echo $current_step > 1 ? 'completed' : ''; ?>">
-                        <div class="step-number">1</div>
+                    <div class="step <?php echo $current_step >= 1 ? 'active' : ''; ?> <?php echo $current_step > 1 ? 'completed' : ''; ?> <?php echo ($jetpack_crm_status['installed'] && $dependencies_status['installed']) ? 'clickable' : ''; ?>" data-step="1">
+                        <div class="step-number"><?php echo $current_step > 1 ? '✓' : '1'; ?></div>
                         <div class="step-title">Prerequisites</div>
+                        <div class="step-status"><?php echo ($jetpack_crm_status['installed'] && $dependencies_status['installed']) ? 'Complete' : 'Required'; ?></div>
                     </div>
-                    <div class="step <?php echo $current_step >= 2 ? 'active' : ''; ?> <?php echo $current_step > 2 ? 'completed' : ''; ?>">
-                        <div class="step-number">2</div>
+                    <div class="step <?php echo $current_step >= 2 ? 'active' : ''; ?> <?php echo $current_step > 2 ? 'completed' : ''; ?> <?php echo ($jetpack_crm_status['installed'] && $dependencies_status['installed']) ? 'clickable' : ''; ?>" data-step="2">
+                        <div class="step-number"><?php echo $current_step > 2 ? '✓' : '2'; ?></div>
                         <div class="step-title">Xero Setup</div>
+                        <div class="step-status"><?php echo $xero_connected ? 'Connected' : 'Required'; ?></div>
                     </div>
-                    <div class="step <?php echo $current_step >= 3 ? 'active' : ''; ?> <?php echo $current_step > 3 ? 'completed' : ''; ?>">
-                        <div class="step-number">3</div>
+                    <div class="step <?php echo $current_step >= 3 ? 'active' : ''; ?> <?php echo $current_step > 3 ? 'completed' : ''; ?> <?php echo $xero_connected ? 'clickable' : ''; ?>" data-step="3">
+                        <div class="step-number"><?php echo $current_step > 3 ? '✓' : '3'; ?></div>
                         <div class="step-title">Jetpack CRM</div>
+                        <div class="step-status"><?php echo $jetpack_configured ? 'Configured' : 'Required'; ?></div>
                     </div>
-                    <div class="step <?php echo $current_step >= 4 ? 'active' : ''; ?>">
+                    <div class="step <?php echo $current_step >= 4 ? 'active' : ''; ?> <?php echo $jetpack_configured ? 'clickable' : ''; ?>" data-step="4">
                         <div class="step-number">4</div>
                         <div class="step-title">Dashboard</div>
+                        <div class="step-status"><?php echo $jetpack_configured ? 'Ready' : 'Pending'; ?></div>
                     </div>
                 </div>
                 
@@ -491,6 +506,20 @@ class Xero_Jetpack_CRM_Integration {
                 updateStats();
             }, 30000); // Update every 30 seconds
             
+            // Next button functionality
+            $('#next-to-jetpack, #next-to-jetpack-from-config').on('click', function() {
+                // Redirect to step 3 (Jetpack CRM configuration)
+                window.location.href = '<?php echo admin_url('options-general.php?page=xero-jetpack-crm-integration&step=3'); ?>';
+            });
+            
+            // Progress bar navigation - make it always clickable
+            $('.step').on('click', function() {
+                var stepNumber = $(this).find('.step-number').text();
+                if (stepNumber && !$(this).hasClass('disabled')) {
+                    window.location.href = '<?php echo admin_url('options-general.php?page=xero-jetpack-crm-integration&step='); ?>' + stepNumber;
+                }
+            });
+            
             // Helper Functions
             function testConnection(type) {
                 var $button = $('#' + type + '-connection');
@@ -751,6 +780,8 @@ class Xero_Jetpack_CRM_Integration {
                     success: function(response) {
                         if (response.success) {
                             $('#connect-xero').show();
+                            $('#xero-connected-status').show();
+                            $('#xero-next-navigation').show();
                             showTestResult('#xero-test-result', 'Credentials saved successfully!', 'success');
                             showNotification('Credentials saved successfully!', 'success');
                         } else {
@@ -795,6 +826,8 @@ class Xero_Jetpack_CRM_Integration {
                         if (response.success) {
                             showTestResult('#xero-test-result', 'Credentials are valid! You can now connect to Xero.', 'success');
                             $('#connect-xero').show();
+                            $('#xero-connected-status').show();
+                            $('#xero-next-navigation').show();
                             showNotification('Credentials are valid! You can now connect to Xero.', 'success');
                         } else {
                             showTestResult('#xero-test-result', 'Invalid credentials: ' + response.data, 'error');
@@ -969,6 +1002,13 @@ class Xero_Jetpack_CRM_Integration {
                         </button>
                     </div>
                 </div>
+                
+                <div class="step-navigation">
+                    <button id="next-to-jetpack" class="btn btn-success btn-large">
+                        <span class="dashicons dashicons-arrow-right-alt2"></span>
+                        <span class="btn-text">Next: Configure Jetpack CRM</span>
+                    </button>
+                </div>
             <?php else: ?>
                 <div class="configuration-card">
                     <div class="card-header">
@@ -1054,6 +1094,17 @@ class Xero_Jetpack_CRM_Integration {
                             <div class="btn-loading">
                                 <div class="spinner"></div>
                             </div>
+                        </button>
+                        <button id="xero-connected-status" class="btn btn-connected" style="display: none;">
+                            <span class="dashicons dashicons-yes-alt"></span>
+                            <span class="btn-text">Connected</span>
+                        </button>
+                    </div>
+                    
+                    <div id="xero-next-navigation" class="step-navigation" style="display: none;">
+                        <button id="next-to-jetpack-from-config" class="btn btn-success btn-large">
+                            <span class="dashicons dashicons-arrow-right-alt2"></span>
+                            <span class="btn-text">Next: Configure Jetpack CRM</span>
                         </button>
                     </div>
                     
