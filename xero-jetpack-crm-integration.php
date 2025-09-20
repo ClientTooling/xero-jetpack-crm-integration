@@ -376,18 +376,52 @@ class Xero_Jetpack_CRM_Integration {
             
             // Simple page functionality - no tabs needed
             
+            // Show notification function
+            function showNotification(message, type) {
+                var notificationClass = type === 'success' ? 'notice-success' : 'notice-error';
+                var $notification = $('<div class="notice ' + notificationClass + ' is-dismissible"><p>' + message + '</p></div>');
+                $('.wrap h1').after($notification);
+                setTimeout(function() {
+                    $notification.fadeOut();
+                }, 5000);
+            }
+            
+            // Toggle password visibility
+            window.togglePassword = function(inputId) {
+                var input = document.getElementById(inputId);
+                var button = input.nextElementSibling;
+                var icon = button.querySelector('.material-icons');
+                
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    icon.textContent = 'visibility_off';
+                } else {
+                    input.type = 'password';
+                    icon.textContent = 'visibility';
+                }
+            }
+            
+            // Copy to clipboard function
+            window.copyToClipboard = function(inputId) {
+                var input = document.getElementById(inputId);
+                input.select();
+                input.setSelectionRange(0, 99999); // For mobile devices
+                document.execCommand('copy');
+                showNotification('Redirect URI copied to clipboard!', 'success');
+            }
+            
             // Function to update the toggle button state
             function updateXeroToggleButton(isConnected) {
                 var $button = $('#xero-toggle-connection');
                 if (isConnected) {
-                    $button.removeClass('material-button-primary').addClass('material-button-danger');
+                    $button.removeClass('btn-success').addClass('btn-danger');
                     $button.find('.material-icons').text('link_off');
-                    $button.find('.button-text').text('Disconnect from Xero');
+                    $button.html('<span class="material-icons">link_off</span>Disconnect');
                     $button.data('action', 'disconnect');
                 } else {
-                    $button.removeClass('material-button-danger').addClass('material-button-primary');
+                    $button.removeClass('btn-danger').addClass('btn-success');
                     $button.find('.material-icons').text('link');
-                    $button.find('.button-text').text('Connect to Xero');
+                    $button.html('<span class="material-icons">link</span>Connect');
                     $button.data('action', 'connect');
                 }
             }
@@ -396,14 +430,14 @@ class Xero_Jetpack_CRM_Integration {
             function updateJetpackToggleButton(isConnected) {
                 var $button = $('#jetpack-toggle-connection');
                 if (isConnected) {
-                    $button.removeClass('material-button-primary').addClass('material-button-danger');
+                    $button.removeClass('btn-success').addClass('btn-danger');
                     $button.find('.material-icons').text('link_off');
-                    $button.find('.button-text').text('Disconnect from Jetpack CRM');
+                    $button.html('<span class="material-icons">link_off</span>Disconnect');
                     $button.data('action', 'disconnect');
                 } else {
-                    $button.removeClass('material-button-danger').addClass('material-button-primary');
+                    $button.removeClass('btn-danger').addClass('btn-success');
                     $button.find('.material-icons').text('link');
-                    $button.find('.button-text').text('Connect to Jetpack CRM');
+                    $button.html('<span class="material-icons">link</span>Connect');
                     $button.data('action', 'connect');
                 }
             }
@@ -497,9 +531,9 @@ class Xero_Jetpack_CRM_Integration {
                     
                     // Show loading state
                     var $button = $(this);
+                    var originalHtml = $button.html();
                     $button.prop('disabled', true);
-                    $button.find('.material-spinner').show();
-                    $button.find('.button-text').hide();
+                    $button.html('<span class="material-icons">sync</span>Connecting...');
                     
                     // Redirect to Xero OAuth
                     var redirectUri = encodeURIComponent($('#redirect_uri').val());
@@ -519,9 +553,9 @@ class Xero_Jetpack_CRM_Integration {
                     // Disconnect from Xero
                     if (confirm('This will disconnect your Xero account. Continue?')) {
                         var $button = $(this);
+                        var originalHtml = $button.html();
                         $button.prop('disabled', true);
-                        $button.find('.material-spinner').show();
-                        $button.find('.button-text').hide();
+                        $button.html('<span class="material-icons">sync</span>Disconnecting...');
                         
                         $.ajax({
                             url: xeroJetpackCrm.ajaxUrl,
@@ -533,8 +567,7 @@ class Xero_Jetpack_CRM_Integration {
                             success: function(response) {
                                 showNotification('Xero disconnected successfully!', 'success');
                                 updateXeroToggleButton(false); // Switch back to connect state
-                                $button.find('.material-spinner').hide();
-                                $button.find('.button-text').show();
+                                $button.html(originalHtml);
                                 $button.prop('disabled', false);
                                 setTimeout(function() {
                                     location.reload();
@@ -542,8 +575,7 @@ class Xero_Jetpack_CRM_Integration {
                             },
                             error: function() {
                                 showNotification('Failed to disconnect Xero account', 'error');
-                                $button.find('.material-spinner').hide();
-                                $button.find('.button-text').show();
+                                $button.html(originalHtml);
                                 $button.prop('disabled', false);
                             }
                         });
@@ -566,9 +598,9 @@ class Xero_Jetpack_CRM_Integration {
                     }
                     
                     var $button = $(this);
+                    var originalHtml = $button.html();
                     $button.prop('disabled', true);
-                    $button.find('.material-spinner').show();
-                    $button.find('.button-text').hide();
+                    $button.html('<span class="material-icons">sync</span>Connecting...');
                     
                     $.ajax({
                         url: xeroJetpackCrm.ajaxUrl,
@@ -584,20 +616,17 @@ class Xero_Jetpack_CRM_Integration {
                             if (response.success) {
                                 showNotification('Jetpack CRM connected successfully!', 'success');
                                 updateJetpackToggleButton(true);
-                                $button.find('.material-spinner').hide();
-                                $button.find('.button-text').show();
+                                $button.html(originalHtml);
                                 $button.prop('disabled', false);
                             } else {
                                 showNotification('Failed to connect to Jetpack CRM: ' + response.data, 'error');
-                                $button.find('.material-spinner').hide();
-                                $button.find('.button-text').show();
+                                $button.html(originalHtml);
                                 $button.prop('disabled', false);
                             }
                         },
                         error: function() {
                             showNotification('Failed to connect to Jetpack CRM due to network error', 'error');
-                            $button.find('.material-spinner').hide();
-                            $button.find('.button-text').show();
+                            $button.html(originalHtml);
                             $button.prop('disabled', false);
                         }
                     });
@@ -605,9 +634,9 @@ class Xero_Jetpack_CRM_Integration {
                     // Disconnect from Jetpack CRM
                     if (confirm('This will disconnect your Jetpack CRM. Continue?')) {
                         var $button = $(this);
+                        var originalHtml = $button.html();
                         $button.prop('disabled', true);
-                        $button.find('.material-spinner').show();
-                        $button.find('.button-text').hide();
+                        $button.html('<span class="material-icons">sync</span>Disconnecting...');
                         
                         $.ajax({
                             url: xeroJetpackCrm.ajaxUrl,
@@ -619,8 +648,7 @@ class Xero_Jetpack_CRM_Integration {
                             success: function(response) {
                                 showNotification('Jetpack CRM disconnected successfully!', 'success');
                                 updateJetpackToggleButton(false);
-                                $button.find('.material-spinner').hide();
-                                $button.find('.button-text').show();
+                                $button.html(originalHtml);
                                 $button.prop('disabled', false);
                                 setTimeout(function() {
                                     location.reload();
@@ -628,8 +656,7 @@ class Xero_Jetpack_CRM_Integration {
                             },
                             error: function() {
                                 showNotification('Failed to disconnect Jetpack CRM', 'error');
-                                $button.find('.material-spinner').hide();
-                                $button.find('.button-text').show();
+                                $button.html(originalHtml);
                                 $button.prop('disabled', false);
                             }
                         });
