@@ -61,6 +61,8 @@ class Xero_Jetpack_CRM_Integration {
         add_action('wp_ajax_xero_get_status', array($this, 'get_xero_status_ajax'));
         add_action('wp_ajax_xero_get_auth_url', array($this, 'get_xero_auth_url_ajax'));
         add_action('wp_ajax_xero_get_stats', array($this, 'get_stats'));
+        add_action('wp_ajax_xero_verify_credentials', array($this, 'verify_credentials_ajax'));
+        add_action('wp_ajax_xero_test_token_exchange', array($this, 'test_token_exchange_ajax'));
         
         // Add OAuth callback handler
         add_action('init', array($this, 'handle_oauth_callback'));
@@ -401,6 +403,14 @@ class Xero_Jetpack_CRM_Integration {
                                 </div>
                                 
                                 <div class="form-actions">
+                                    <button id="verify-xero-credentials" class="btn btn-outline" style="margin-right: 10px;">
+                                        <span class="material-icons">verified_user</span>
+                                        Verify Credentials
+                                    </button>
+                                    <button id="test-token-exchange" class="btn btn-outline" style="margin-right: 10px;">
+                                        <span class="material-icons">bug_report</span>
+                                        Test Token Exchange
+                                    </button>
                                     <button id="xero-toggle-connection" class="btn <?php echo $xero_connected ? 'btn-danger' : 'btn-success'; ?>" data-action="<?php echo $xero_connected ? 'disconnect' : 'connect'; ?>">
                                         <span class="material-icons"><?php echo $xero_connected ? 'link_off' : 'link'; ?></span>
                                         <?php echo $xero_connected ? 'Disconnect' : 'Connect'; ?>
@@ -734,6 +744,79 @@ class Xero_Jetpack_CRM_Integration {
                     },
                     error: function(xhr, status, error) {
                         showTestResult('#xero-test-result', 'Test failed: ' + error, 'error');
+                    }
+                });
+            });
+            
+            // Verify Xero Credentials
+            $('#verify-xero-credentials').on('click', function() {
+                var $button = $(this);
+                var originalHtml = $button.html();
+                $button.prop('disabled', true);
+                $button.html('<span class="material-icons">sync</span>Verifying...');
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_verify_credentials',
+                        nonce: xeroJetpackCrm.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            showNotification('Credentials verified: ' + response.data.message, 'success');
+                        } else {
+                            showNotification('Credential verification failed: ' + response.data.error, 'error');
+                        }
+                        $button.html(originalHtml).prop('disabled', false);
+                    },
+                    error: function() {
+                        showNotification('Failed to verify credentials due to network error', 'error');
+                        $button.html(originalHtml).prop('disabled', false);
+                    }
+                });
+            });
+            
+            // Test Token Exchange
+            $('#test-token-exchange').on('click', function() {
+                var $button = $(this);
+                var originalHtml = $button.html();
+                $button.prop('disabled', true);
+                $button.html('<span class="material-icons">sync</span>Testing...');
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_test_token_exchange',
+                        nonce: xeroJetpackCrm.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            var data = response.data;
+                            var message = 'Token Exchange Test Results:\n';
+                            message += 'HTTP Code: ' + data.http_code + '\n';
+                            message += 'Client ID: ' + data.client_id + '\n';
+                            message += 'Client Secret Length: ' + data.client_secret_length + '\n';
+                            message += 'Redirect URI: ' + data.redirect_uri + '\n';
+                            message += 'Response: ' + data.response_body;
+                            
+                            if (data.error) {
+                                message += '\n\nError: ' + data.error;
+                                if (data.error_description) {
+                                    message += '\nDescription: ' + data.error_description;
+                                }
+                            }
+                            
+                            alert(message);
+                        } else {
+                            showNotification('Token exchange test failed: ' + response.data, 'error');
+                        }
+                        $button.html(originalHtml).prop('disabled', false);
+                    },
+                    error: function() {
+                        showNotification('Failed to test token exchange due to network error', 'error');
+                        $button.html(originalHtml).prop('disabled', false);
                     }
                 });
             });
@@ -3650,6 +3733,79 @@ spl_autoload_register(function ($class) {
         }
         
         return array('valid' => true, 'message' => 'Credentials verified');
+    }
+    
+    public function verify_credentials_ajax() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $result = $this->verify_xero_credentials();
+        
+        if ($result['valid']) {
+            wp_send_json_success($result);
+        } else {
+            wp_send_json_error($result);
+        }
+    }
+    
+    public function test_token_exchange_ajax() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $client_id = get_option('xero_client_id');
+        $client_secret = get_option('xero_client_secret');
+        
+        if (empty($client_id) || empty($client_secret)) {
+            wp_send_json_error('Xero credentials not configured');
+        }
+        
+        // Test with a dummy code to see what error we get
+        $token_url = 'https://identity.xero.com/connect/token';
+        $redirect_uri = admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback');
+        
+        $response = wp_remote_post($token_url, array(
+            'body' => array(
+                'grant_type' => 'authorization_code',
+                'client_id' => $client_id,
+                'client_secret' => $client_secret,
+                'code' => 'test_code_123',
+                'redirect_uri' => $redirect_uri
+            ),
+            'headers' => array(
+                'Content-Type' => 'application/x-www-form-urlencoded',
+                'Accept' => 'application/json'
+            ),
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            wp_send_json_error('Network error: ' . $response->get_error_message());
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        $result = array(
+            'http_code' => $http_code,
+            'response_body' => $body,
+            'client_id' => $client_id,
+            'client_secret_length' => strlen($client_secret),
+            'redirect_uri' => $redirect_uri
+        );
+        
+        if (isset($data['error'])) {
+            $result['error'] = $data['error'];
+            $result['error_description'] = isset($data['error_description']) ? $data['error_description'] : '';
+        }
+        
+        wp_send_json_success($result);
     }
     
     private function install_plugin_from_url($plugin_url) {
