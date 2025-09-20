@@ -151,6 +151,13 @@ class Xero_Jetpack_CRM_Integration {
             $xero_token_expires = get_option('xero_token_expires', 0);
             $xero_connected = !empty($xero_refresh_token) && !empty($xero_access_token);
             
+            // Debug: Log current connection status
+            error_log('Xero Connection Debug:');
+            error_log('- Access Token: ' . (!empty($xero_access_token) ? 'Present' : 'Missing'));
+            error_log('- Refresh Token: ' . (!empty($xero_refresh_token) ? 'Present' : 'Missing'));
+            error_log('- Token Expires: ' . ($xero_token_expires > 0 ? date('Y-m-d H:i:s', $xero_token_expires) : 'Not set'));
+            error_log('- Connected: ' . ($xero_connected ? 'Yes' : 'No'));
+            
             // Check if token is expired and try to refresh
             if ($xero_connected && $xero_token_expires > 0 && time() > $xero_token_expires) {
                 if ($this->refresh_xero_token()) {
@@ -187,6 +194,17 @@ class Xero_Jetpack_CRM_Integration {
                         </p>
                     </div>
                 <?php endif; ?>
+                
+                <!-- Debug Information -->
+                <div class="notice notice-info" style="margin: 20px 0; padding: 15px; background: #f0f8ff; border-left: 4px solid #0073aa; border-radius: 8px;">
+                    <h4 style="margin: 0 0 10px 0; color: #0073aa;">Debug Information</h4>
+                    <p style="margin: 0 0 5px 0;"><strong>Current Redirect URI:</strong> <?php echo esc_html(admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback')); ?></p>
+                    <p style="margin: 0 0 5px 0;"><strong>Access Token:</strong> <?php echo !empty($xero_access_token) ? 'Present (Length: ' . strlen($xero_access_token) . ')' : 'Missing'; ?></p>
+                    <p style="margin: 0 0 5px 0;"><strong>Refresh Token:</strong> <?php echo !empty($xero_refresh_token) ? 'Present (Length: ' . strlen($xero_refresh_token) . ')' : 'Missing'; ?></p>
+                    <p style="margin: 0 0 5px 0;"><strong>Token Expires:</strong> <?php echo $xero_token_expires > 0 ? date('Y-m-d H:i:s', $xero_token_expires) . ' (' . floor(($xero_token_expires - time()) / 60) . ' minutes left)' : 'Not set'; ?></p>
+                    <p style="margin: 0 0 5px 0;"><strong>Organization:</strong> <?php echo !empty($xero_tenant_name) ? esc_html($xero_tenant_name) : 'Not fetched'; ?></p>
+                    <p style="margin: 0;"><strong>Connection Status:</strong> <?php echo $xero_connected ? 'Connected' : 'Disconnected'; ?></p>
+                </div>
                 
                 <!-- Single Page Layout -->
                 <div class="xero-jetpack-crm-simple">
