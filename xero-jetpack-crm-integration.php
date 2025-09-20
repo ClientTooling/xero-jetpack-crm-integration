@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: Xero Jetpack CRM Integration
- * Plugin URI: https://github.com/your-username/xero-jetpack-crm-integration
+ * Plugin URI: https://github.com/ClientTooling/xero-jetpack-crm-integration
  * Description: Integrates Xero with Jetpack CRM for one-way sync of contacts, invoices, and payments. Automatically installs required dependencies.
  * Version: 1.0.0
- * Author: Your Name
- * Author URI: https://yourwebsite.com
+ * Author: Maryam
+ * Author URI: https://ebridge.tech
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: xero-jetpack-crm-integration
