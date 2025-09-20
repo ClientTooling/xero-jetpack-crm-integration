@@ -716,7 +716,150 @@ class Xero_Jetpack_CRM_Integration {
                     }
                 `)
                 .appendTo('head');
+            
+            // Enhanced button loading states
+            function setButtonLoading($button, loading) {
+                if (loading) {
+                    $button.addClass('loading').prop('disabled', true);
+                } else {
+                    $button.removeClass('loading').prop('disabled', false);
+                }
+            }
+            
+            // Update existing AJAX calls to use loading states
+            $('#save-xero-credentials').on('click', function() {
+                var $button = $(this);
+                var clientId = $('#xero_client_id').val();
+                var clientSecret = $('#xero_client_secret').val();
+                
+                if (!clientId || !clientSecret) {
+                    showNotification('Please enter both Client ID and Client Secret.', 'error');
+                    return;
+                }
+                
+                setButtonLoading($button, true);
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_save_credentials',
+                        nonce: xeroJetpackCrm.nonce,
+                        xero_client_id: clientId,
+                        xero_client_secret: clientSecret
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $('#connect-xero').show();
+                            showTestResult('#xero-test-result', 'Credentials saved successfully!', 'success');
+                            showNotification('Credentials saved successfully!', 'success');
+                        } else {
+                            showTestResult('#xero-test-result', 'Failed to save credentials: ' + response.data, 'error');
+                            showNotification('Failed to save credentials: ' + response.data, 'error');
+                        }
+                    },
+                    error: function() {
+                        showTestResult('#xero-test-result', 'Failed to save credentials due to network error', 'error');
+                        showNotification('Failed to save credentials due to network error', 'error');
+                    },
+                    complete: function() {
+                        setButtonLoading($button, false);
+                    }
+                });
+            });
+            
+            $('#test-xero-credentials').on('click', function() {
+                var $button = $(this);
+                var clientId = $('#xero_client_id').val();
+                var clientSecret = $('#xero_client_secret').val();
+                
+                if (!clientId || !clientSecret) {
+                    showTestResult('#xero-test-result', 'Please enter both Client ID and Client Secret first.', 'error');
+                    showNotification('Please enter both Client ID and Client Secret first.', 'error');
+                    return;
+                }
+                
+                setButtonLoading($button, true);
+                showTestResult('#xero-test-result', 'Testing credentials...', 'info');
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_test_credentials',
+                        nonce: xeroJetpackCrm.nonce,
+                        xero_client_id: clientId,
+                        xero_client_secret: clientSecret
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            showTestResult('#xero-test-result', 'Credentials are valid! You can now connect to Xero.', 'success');
+                            $('#connect-xero').show();
+                            showNotification('Credentials are valid! You can now connect to Xero.', 'success');
+                        } else {
+                            showTestResult('#xero-test-result', 'Invalid credentials: ' + response.data, 'error');
+                            showNotification('Invalid credentials: ' + response.data, 'error');
+                        }
+                    },
+                    error: function() {
+                        showTestResult('#xero-test-result', 'Test failed due to network error', 'error');
+                        showNotification('Test failed due to network error', 'error');
+                    },
+                    complete: function() {
+                        setButtonLoading($button, false);
+                    }
+                });
+            });
         });
+        </script>
+        
+        <script>
+        // Global functions for interactive features
+        function togglePassword(inputId) {
+            var input = document.getElementById(inputId);
+            var button = input.nextElementSibling;
+            var icon = button.querySelector('.dashicons');
+            
+            if (input.type === 'password') {
+                input.type = 'text';
+                icon.className = 'dashicons dashicons-hidden';
+            } else {
+                input.type = 'password';
+                icon.className = 'dashicons dashicons-visibility';
+            }
+        }
+        
+        function copyToClipboard(inputId) {
+            var input = document.getElementById(inputId);
+            input.select();
+            input.setSelectionRange(0, 99999); // For mobile devices
+            
+            try {
+                document.execCommand('copy');
+                
+                // Show success feedback
+                var button = input.nextElementSibling;
+                var originalIcon = button.innerHTML;
+                button.innerHTML = '<span class="dashicons dashicons-yes-alt"></span>';
+                button.style.color = '#27ae60';
+                
+                // Show notification
+                if (typeof showNotification === 'function') {
+                    showNotification('Redirect URI copied to clipboard!', 'success');
+                }
+                
+                // Reset button after 2 seconds
+                setTimeout(function() {
+                    button.innerHTML = originalIcon;
+                    button.style.color = '#6c757d';
+                }, 2000);
+                
+            } catch (err) {
+                if (typeof showNotification === 'function') {
+                    showNotification('Failed to copy to clipboard', 'error');
+                }
+            }
+        }
         </script>
         <?php
     }
@@ -793,58 +936,128 @@ class Xero_Jetpack_CRM_Integration {
         $xero_client_secret = get_option('xero_client_secret', '');
         $xero_connected = !empty(get_option('xero_refresh_token'));
         ?>
-        <div class="wizard-step">
-            <h2>Step 2: Xero Configuration</h2>
-            <p>Connect your Xero account to enable data synchronization.</p>
+        <div class="wizard-step xero-configuration-enhanced">
+            <div class="step-header">
+                <div class="step-icon">
+                    <span class="dashicons dashicons-cloud"></span>
+                </div>
+                <div class="step-content">
+                    <h2>Step 2: Xero Configuration</h2>
+                    <p class="step-description">Connect your Xero account to enable data synchronization</p>
+                </div>
+            </div>
             
             <?php if ($xero_connected): ?>
-                <div class="status-success">
-                    <span class="dashicons dashicons-yes-alt"></span>
-                    <strong>Xero Connected Successfully!</strong>
-                    <p>Your Xero account is connected and ready.</p>
-                    <button id="test-xero-connection" class="button">Test Connection</button>
-                    <button id="disconnect-xero" class="button">Disconnect</button>
+                <div class="connection-status connected">
+                    <div class="status-icon">
+                        <span class="dashicons dashicons-yes-alt"></span>
+                    </div>
+                    <div class="status-content">
+                        <h3>Xero Connected Successfully!</h3>
+                        <p>Your Xero account is connected and ready for synchronization.</p>
+                        <div class="connection-details">
+                            <span class="connection-indicator pulse"></span>
+                            <span class="connection-text">Active Connection</span>
+                        </div>
+                    </div>
+                    <div class="status-actions">
+                        <button id="test-xero-connection" class="btn btn-outline">
+                            <span class="dashicons dashicons-update"></span> Test Connection
+                        </button>
+                        <button id="disconnect-xero" class="btn btn-danger">
+                            <span class="dashicons dashicons-no-alt"></span> Disconnect
+                        </button>
+                    </div>
                 </div>
             <?php else: ?>
-                <div class="configuration-form">
-                    <h3>Xero App Credentials</h3>
-                    <p>Enter your Xero app credentials from <a href="https://developer.xero.com" target="_blank">developer.xero.com</a></p>
-                    
-                    <table class="form-table">
-                        <tr>
-                            <th scope="row">
-                                <label for="xero_client_id">Client ID</label>
-                            </th>
-                            <td>
-                                <input type="text" id="xero_client_id" value="<?php echo esc_attr($xero_client_id); ?>" class="regular-text" />
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">
-                                <label for="xero_client_secret">Client Secret</label>
-                            </th>
-                            <td>
-                                <input type="password" id="xero_client_secret" value="<?php echo esc_attr($xero_client_secret); ?>" class="regular-text" />
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">
-                                <label for="redirect_uri">Redirect URI</label>
-                            </th>
-                            <td>
-                                <input type="text" id="redirect_uri" value="<?php echo esc_attr(admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback')); ?>" class="regular-text" readonly />
-                                <p class="description">Copy this URL to your Xero app configuration</p>
-                            </td>
-                        </tr>
-                    </table>
-                    
-                    <div class="step-actions">
-                        <button id="save-xero-credentials" class="button button-primary">Save Credentials</button>
-                        <button id="test-xero-credentials" class="button">Test Credentials</button>
-                        <button id="connect-xero" class="button button-primary" style="display: none;">Connect to Xero</button>
+                <div class="configuration-card">
+                    <div class="card-header">
+                        <h3><span class="dashicons dashicons-admin-settings"></span> Xero App Credentials</h3>
+                        <p class="card-description">
+                            Enter your Xero app credentials from 
+                            <a href="https://developer.xero.com" target="_blank" class="external-link">
+                                developer.xero.com
+                                <span class="dashicons dashicons-external"></span>
+                            </a>
+                        </p>
                     </div>
                     
-                    <div id="xero-test-result" style="display: none;"></div>
+                    <div class="form-container">
+                        <div class="input-group">
+                            <label for="xero_client_id" class="input-label">
+                                <span class="label-icon dashicons dashicons-admin-users"></span>
+                                Client ID
+                            </label>
+                            <div class="input-wrapper">
+                                <input type="text" id="xero_client_id" value="<?php echo esc_attr($xero_client_id); ?>" 
+                                       class="modern-input" placeholder="Enter your Xero Client ID" />
+                                <div class="input-focus-line"></div>
+                            </div>
+                            <div class="input-hint">Your Xero application's unique identifier</div>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="xero_client_secret" class="input-label">
+                                <span class="label-icon dashicons dashicons-lock"></span>
+                                Client Secret
+                            </label>
+                            <div class="input-wrapper">
+                                <input type="password" id="xero_client_secret" value="<?php echo esc_attr($xero_client_secret); ?>" 
+                                       class="modern-input" placeholder="Enter your Xero Client Secret" />
+                                <button type="button" class="toggle-password" onclick="togglePassword('xero_client_secret')">
+                                    <span class="dashicons dashicons-visibility"></span>
+                                </button>
+                                <div class="input-focus-line"></div>
+                            </div>
+                            <div class="input-hint">Keep this secret secure and never share it publicly</div>
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="redirect_uri" class="input-label">
+                                <span class="label-icon dashicons dashicons-admin-links"></span>
+                                Redirect URI
+                            </label>
+                            <div class="input-wrapper">
+                                <input type="text" id="redirect_uri" 
+                                       value="<?php echo esc_attr(admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback')); ?>" 
+                                       class="modern-input readonly" readonly />
+                                <button type="button" class="copy-button" onclick="copyToClipboard('redirect_uri')">
+                                    <span class="dashicons dashicons-clipboard"></span>
+                                </button>
+                                <div class="input-focus-line"></div>
+                            </div>
+                            <div class="input-hint">
+                                <span class="dashicons dashicons-info"></span>
+                                Copy this URL to your Xero app configuration
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="action-buttons">
+                        <button id="save-xero-credentials" class="btn btn-primary">
+                            <span class="dashicons dashicons-saved"></span>
+                            <span class="btn-text">Save Credentials</span>
+                            <div class="btn-loading">
+                                <div class="spinner"></div>
+                            </div>
+                        </button>
+                        <button id="test-xero-credentials" class="btn btn-outline">
+                            <span class="dashicons dashicons-search"></span>
+                            <span class="btn-text">Test Credentials</span>
+                            <div class="btn-loading">
+                                <div class="spinner"></div>
+                            </div>
+                        </button>
+                        <button id="connect-xero" class="btn btn-success" style="display: none;">
+                            <span class="dashicons dashicons-admin-links"></span>
+                            <span class="btn-text">Connect to Xero</span>
+                            <div class="btn-loading">
+                                <div class="spinner"></div>
+                            </div>
+                        </button>
+                    </div>
+                    
+                    <div id="xero-test-result" class="test-result" style="display: none;"></div>
                 </div>
             <?php endif; ?>
         </div>
