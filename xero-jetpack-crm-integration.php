@@ -368,7 +368,7 @@ class Xero_Jetpack_CRM_Integration {
                                 <div class="form-group">
                                     <label for="redirect_uri">Redirect URI</label>
                                     <div class="input-group">
-                                        <input type="url" id="redirect_uri" value="<?php echo esc_attr(admin_url('options-general.php?page=xero-jetpack-crm-integration')); ?>" readonly>
+                                        <input type="url" id="redirect_uri" value="<?php echo esc_attr(admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback')); ?>" readonly>
                                         <button type="button" class="copy-btn" onclick="copyToClipboard('redirect_uri')">
                                             <span class="material-icons">content_copy</span>
                                         </button>
@@ -3173,9 +3173,13 @@ spl_autoload_register(function ($class) {
     }
     
     public function oauth_callback() {
+        // Log all GET parameters for debugging
+        error_log('OAuth Callback - GET parameters: ' . print_r($_GET, true));
+        
         // Handle both AJAX and direct callback
         if (isset($_GET['action']) && $_GET['action'] === 'oauth_callback') {
             if (!isset($_GET['code']) || !isset($_GET['state'])) {
+                error_log('OAuth Callback - Missing code or state parameters');
                 wp_die('Invalid OAuth callback parameters');
             }
             
@@ -3218,6 +3222,8 @@ spl_autoload_register(function ($class) {
             $body = wp_remote_retrieve_body($response);
             $data = json_decode($body, true);
             
+            error_log('OAuth Callback - Token exchange response: ' . $body);
+            
             if (isset($data['access_token'])) {
                 // Save tokens
                 update_option('xero_access_token', $data['access_token']);
@@ -3242,6 +3248,78 @@ spl_autoload_register(function ($class) {
                 // Log error for debugging
                 error_log('Xero OAuth Error: ' . $body);
                 wp_die('Failed to obtain access token. Error: ' . $body);
+            }
+        } else {
+            // Fallback: Handle callback without action parameter
+            if (isset($_GET['code']) && isset($_GET['state'])) {
+                error_log('OAuth Callback - Fallback handler triggered');
+                
+                $code = sanitize_text_field($_GET['code']);
+                $state = sanitize_text_field($_GET['state']);
+                
+                // Parse state parameter
+                $state_parts = explode('|', $state);
+                $action = isset($state_parts[0]) ? $state_parts[0] : '';
+                
+                $client_id = get_option('xero_client_id');
+                $client_secret = get_option('xero_client_secret');
+                
+                if (empty($client_id) || empty($client_secret)) {
+                    wp_die('Xero credentials not configured');
+                }
+                
+                // Exchange code for tokens
+                $token_url = 'https://identity.xero.com/connect/token';
+                $redirect_uri = admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback');
+                
+                $response = wp_remote_post($token_url, array(
+                    'body' => array(
+                        'grant_type' => 'authorization_code',
+                        'client_id' => $client_id,
+                        'client_secret' => $client_secret,
+                        'code' => $code,
+                        'redirect_uri' => $redirect_uri
+                    ),
+                    'headers' => array(
+                        'Content-Type' => 'application/x-www-form-urlencoded'
+                    ),
+                    'timeout' => 30
+                ));
+                
+                if (is_wp_error($response)) {
+                    wp_die('Token exchange failed: ' . $response->get_error_message());
+                }
+                
+                $body = wp_remote_retrieve_body($response);
+                $data = json_decode($body, true);
+                
+                error_log('OAuth Callback (Fallback) - Token exchange response: ' . $body);
+                
+                if (isset($data['access_token'])) {
+                    // Save tokens
+                    update_option('xero_access_token', $data['access_token']);
+                    update_option('xero_refresh_token', $data['refresh_token']);
+                    update_option('xero_token_expires', time() + $data['expires_in']);
+                    update_option('xero_connected_at', time());
+                    
+                    // Fetch basic organization info to verify connection
+                    $this->fetch_xero_organization_info();
+                    
+                    // Log successful connection
+                    error_log('Xero OAuth: Successfully connected via fallback handler. Access token saved.');
+                    
+                    // Redirect based on action - if connecting, go to Jetpack tab
+                    if ($action === 'connect-xero') {
+                        wp_redirect(admin_url('options-general.php?page=xero-jetpack-crm-integration&tab=jetpack&connected=1&success=1'));
+                    } else {
+                        wp_redirect(admin_url('options-general.php?page=xero-jetpack-crm-integration&connected=1&success=1'));
+                    }
+                    exit;
+                } else {
+                    // Log error for debugging
+                    error_log('Xero OAuth Error (Fallback): ' . $body);
+                    wp_die('Failed to obtain access token. Error: ' . $body);
+                }
             }
         }
     }
