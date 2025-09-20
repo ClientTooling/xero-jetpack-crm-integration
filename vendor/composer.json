@@ -1,0 +1,7 @@
+{
+    "name": "xero-jetpack-crm/minimal",
+    "description": "Minimal autoloader for Xero Jetpack CRM Integration",
+    "autoload": {
+        "files": ["autoload.php"]
+    }
+}
