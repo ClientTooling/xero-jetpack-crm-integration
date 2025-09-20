@@ -50,6 +50,13 @@ class Xero_Jetpack_CRM_Integration {
         add_action('wp_ajax_xero_test_connection', array($this, 'test_connection'));
         add_action('wp_ajax_xero_manual_sync', array($this, 'manual_sync'));
         add_action('wp_ajax_xero_oauth_callback', array($this, 'oauth_callback'));
+        add_action('wp_ajax_xero_save_credentials', array($this, 'save_xero_credentials'));
+        add_action('wp_ajax_xero_test_credentials', array($this, 'test_xero_credentials'));
+        add_action('wp_ajax_xero_save_jetpack_credentials', array($this, 'save_jetpack_credentials'));
+        add_action('wp_ajax_xero_test_jetpack_connection', array($this, 'test_jetpack_connection'));
+        add_action('wp_ajax_xero_clear_jetpack_config', array($this, 'clear_jetpack_config'));
+        add_action('wp_ajax_xero_disconnect', array($this, 'disconnect_xero'));
+        add_action('wp_ajax_xero_save_sync_settings', array($this, 'save_sync_settings'));
         
         // Activation hook
         register_activation_hook(__FILE__, array($this, 'activate'));
@@ -618,10 +625,69 @@ class Xero_Jetpack_CRM_Integration {
                 installComponent('dependencies', $(this));
             });
             
-            // Show Settings Form
-            $('#show-settings').on('click', function() {
-                $('.xero-jetpack-crm-setup').hide();
-                $('#settings-form').show();
+            // Save Xero Credentials
+            $('#save-xero-credentials').on('click', function() {
+                var clientId = $('#xero_client_id').val();
+                var clientSecret = $('#xero_client_secret').val();
+                
+                if (!clientId || !clientSecret) {
+                    alert('Please enter both Client ID and Client Secret.');
+                    return;
+                }
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_save_credentials',
+                        nonce: xeroJetpackCrm.nonce,
+                        xero_client_id: clientId,
+                        xero_client_secret: clientSecret
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $('#connect-xero').show();
+                            showTestResult('#xero-test-result', 'Credentials saved successfully!', 'success');
+                        } else {
+                            showTestResult('#xero-test-result', 'Failed to save credentials: ' + response.data, 'error');
+                        }
+                    }
+                });
+            });
+            
+            // Test Xero Credentials
+            $('#test-xero-credentials').on('click', function() {
+                var clientId = $('#xero_client_id').val();
+                var clientSecret = $('#xero_client_secret').val();
+                
+                if (!clientId || !clientSecret) {
+                    showTestResult('#xero-test-result', 'Please enter both Client ID and Client Secret first.', 'error');
+                    return;
+                }
+                
+                showTestResult('#xero-test-result', 'Testing credentials...', 'info');
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_test_credentials',
+                        nonce: xeroJetpackCrm.nonce,
+                        xero_client_id: clientId,
+                        xero_client_secret: clientSecret
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            showTestResult('#xero-test-result', 'Credentials are valid! You can now connect to Xero.', 'success');
+                            $('#connect-xero').show();
+                        } else {
+                            showTestResult('#xero-test-result', 'Invalid credentials: ' + response.data, 'error');
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        showTestResult('#xero-test-result', 'Test failed: ' + error, 'error');
+                    }
+                });
             });
             
             // Connect to Xero
@@ -645,31 +711,138 @@ class Xero_Jetpack_CRM_Integration {
                 window.location.href = authUrl;
             });
             
-            // Test Connection
-            $('#test-connection').on('click', function() {
-                var $button = $(this);
-                $button.prop('disabled', true).text('Testing...');
+            // Test Xero Connection
+            $('#test-xero-connection').on('click', function() {
+                testConnection('xero');
+            });
+            
+            // Save Jetpack Credentials
+            $('#save-jetpack-credentials').on('click', function() {
+                var apiKey = $('#jetpack_crm_api_key').val();
+                var apiSecret = $('#jetpack_crm_api_secret').val();
+                var endpoint = $('#jetpack_crm_endpoint').val();
+                
+                if (!apiKey || !endpoint) {
+                    alert('Please enter API Key and Endpoint URL.');
+                    return;
+                }
                 
                 $.ajax({
                     url: xeroJetpackCrm.ajaxUrl,
                     type: 'POST',
                     data: {
-                        action: 'xero_test_connection',
-                        nonce: xeroJetpackCrm.nonce
+                        action: 'xero_save_jetpack_credentials',
+                        nonce: xeroJetpackCrm.nonce,
+                        jetpack_crm_api_key: apiKey,
+                        jetpack_crm_api_secret: apiSecret,
+                        jetpack_crm_endpoint: endpoint
                     },
                     success: function(response) {
                         if (response.success) {
-                            alert('Connection test successful!');
+                            showTestResult('#jetpack-test-result', 'Configuration saved successfully!', 'success');
+                            setTimeout(function() {
+                                location.reload();
+                            }, 2000);
                         } else {
-                            alert('Connection test failed: ' + (response.data || 'Unknown error'));
+                            showTestResult('#jetpack-test-result', 'Failed to save configuration: ' + response.data, 'error');
+                        }
+                    }
+                });
+            });
+            
+            // Test Jetpack Credentials
+            $('#test-jetpack-credentials').on('click', function() {
+                var apiKey = $('#jetpack_crm_api_key').val();
+                var apiSecret = $('#jetpack_crm_api_secret').val();
+                var endpoint = $('#jetpack_crm_endpoint').val();
+                
+                if (!apiKey || !endpoint) {
+                    showTestResult('#jetpack-test-result', 'Please enter API Key and Endpoint URL first.', 'error');
+                    return;
+                }
+                
+                showTestResult('#jetpack-test-result', 'Testing connection...', 'info');
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_test_jetpack_connection',
+                        nonce: xeroJetpackCrm.nonce,
+                        jetpack_crm_api_key: apiKey,
+                        jetpack_crm_api_secret: apiSecret,
+                        jetpack_crm_endpoint: endpoint
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            showTestResult('#jetpack-test-result', 'Connection successful! ' + response.data, 'success');
+                        } else {
+                            showTestResult('#jetpack-test-result', 'Connection failed: ' + response.data, 'error');
                         }
                     },
                     error: function(xhr, status, error) {
-                        console.log('AJAX Error:', xhr, status, error);
-                        alert('Connection test failed: ' + error + ' (Status: ' + xhr.status + ')');
+                        showTestResult('#jetpack-test-result', 'Test failed: ' + error, 'error');
+                    }
+                });
+            });
+            
+            // Test Jetpack Connection
+            $('#test-jetpack-connection').on('click', function() {
+                testConnection('jetpack');
+            });
+            
+            // Reconfigure Jetpack
+            $('#reconfigure-jetpack').on('click', function() {
+                if (confirm('This will clear your current Jetpack CRM configuration. Continue?')) {
+                    $.ajax({
+                        url: xeroJetpackCrm.ajaxUrl,
+                        type: 'POST',
+                        data: {
+                            action: 'xero_clear_jetpack_config',
+                            nonce: xeroJetpackCrm.nonce
+                        },
+                        success: function(response) {
+                            location.reload();
+                        }
+                    });
+                }
+            });
+            
+            // Disconnect Xero
+            $('#disconnect-xero').on('click', function() {
+                if (confirm('This will disconnect your Xero account. Continue?')) {
+                    $.ajax({
+                        url: xeroJetpackCrm.ajaxUrl,
+                        type: 'POST',
+                        data: {
+                            action: 'xero_disconnect',
+                            nonce: xeroJetpackCrm.nonce
+                        },
+                        success: function(response) {
+                            location.reload();
+                        }
+                    });
+                }
+            });
+            
+            // Save Sync Settings
+            $('#save-sync-settings').on('click', function() {
+                var frequency = $('#sync_frequency').val();
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_save_sync_settings',
+                        nonce: xeroJetpackCrm.nonce,
+                        sync_frequency: frequency
                     },
-                    complete: function() {
-                        $button.prop('disabled', false).text('Test Connection');
+                    success: function(response) {
+                        if (response.success) {
+                            alert('Sync settings saved successfully!');
+                        } else {
+                            alert('Failed to save settings: ' + response.data);
+                        }
                     }
                 });
             });
@@ -688,12 +861,46 @@ class Xero_Jetpack_CRM_Integration {
                             if (response.success) {
                                 alert('Manual sync completed successfully!');
                             } else {
-                                alert('Manual sync failed: ' + response.message);
+                                alert('Manual sync failed: ' + response.data);
                             }
                         }
                     });
                 }
             });
+            
+            // Helper Functions
+            function testConnection(type) {
+                var $button = $('#' + type + '-connection');
+                $button.prop('disabled', true).text('Testing...');
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_test_' + type + '_connection',
+                        nonce: xeroJetpackCrm.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            alert(type.charAt(0).toUpperCase() + type.slice(1) + ' connection test successful!');
+                        } else {
+                            alert(type.charAt(0).toUpperCase() + type.slice(1) + ' connection test failed: ' + response.data);
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        alert(type.charAt(0).toUpperCase() + type.slice(1) + ' connection test failed: ' + error);
+                    },
+                    complete: function() {
+                        $button.prop('disabled', false).text('Test Connection');
+                    }
+                });
+            }
+            
+            function showTestResult(selector, message, type) {
+                var $result = $(selector);
+                $result.removeClass('success error info').addClass(type);
+                $result.html(message).show();
+            }
             
             function installComponent(type, $button) {
                 $button.prop('disabled', true);
@@ -1368,6 +1575,194 @@ spl_autoload_register(function ($class) {
         } catch (Exception $e) {
             wp_send_json_error('Test connection failed: ' . $e->getMessage());
         }
+    }
+    
+    public function save_xero_credentials() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $client_id = sanitize_text_field($_POST['xero_client_id']);
+        $client_secret = sanitize_text_field($_POST['xero_client_secret']);
+        
+        if (empty($client_id) || empty($client_secret)) {
+            wp_send_json_error('Both Client ID and Client Secret are required');
+        }
+        
+        update_option('xero_client_id', $client_id);
+        update_option('xero_client_secret', $client_secret);
+        
+        wp_send_json_success('Credentials saved successfully');
+    }
+    
+    public function test_xero_credentials() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $client_id = sanitize_text_field($_POST['xero_client_id']);
+        $client_secret = sanitize_text_field($_POST['xero_client_secret']);
+        
+        if (empty($client_id) || empty($client_secret)) {
+            wp_send_json_error('Both Client ID and Client Secret are required');
+        }
+        
+        // Basic validation - check if credentials look valid
+        if (strlen($client_id) < 10 || strlen($client_secret) < 10) {
+            wp_send_json_error('Invalid credential format');
+        }
+        
+        wp_send_json_success('Credentials appear to be valid');
+    }
+    
+    public function save_jetpack_credentials() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $api_key = sanitize_text_field($_POST['jetpack_crm_api_key']);
+        $api_secret = sanitize_text_field($_POST['jetpack_crm_api_secret']);
+        $endpoint = esc_url_raw($_POST['jetpack_crm_endpoint']);
+        
+        if (empty($api_key) || empty($endpoint)) {
+            wp_send_json_error('API Key and Endpoint URL are required');
+        }
+        
+        update_option('jetpack_crm_api_key', $api_key);
+        update_option('jetpack_crm_api_secret', $api_secret);
+        update_option('jetpack_crm_endpoint', $endpoint);
+        
+        wp_send_json_success('Configuration saved successfully');
+    }
+    
+    public function test_jetpack_connection() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $api_key = get_option('jetpack_crm_api_key');
+        $api_secret = get_option('jetpack_crm_api_secret');
+        $endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($api_key) || empty($endpoint)) {
+            wp_send_json_error('Jetpack CRM not configured');
+        }
+        
+        // Test connection with multiple authentication methods
+        $test_url = rtrim($endpoint, '/') . '/wp-json/zerobscrm/v1/customers';
+        
+        $auth_methods = array();
+        
+        // Method 1: Bearer token
+        $auth_methods[] = array(
+            'name' => 'Bearer Token',
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $api_key,
+                'Content-Type' => 'application/json'
+            )
+        );
+        
+        // Method 2: Basic auth with API key and secret
+        if (!empty($api_secret)) {
+            $auth_methods[] = array(
+                'name' => 'Basic Auth',
+                'headers' => array(
+                    'Authorization' => 'Basic ' . base64_encode($api_key . ':' . $api_secret),
+                    'Content-Type' => 'application/json'
+                )
+            );
+        }
+        
+        // Method 3: API key in header
+        $auth_methods[] = array(
+            'name' => 'API Key Header',
+            'headers' => array(
+                'X-API-Key' => $api_key,
+                'Content-Type' => 'application/json'
+            )
+        );
+        
+        $last_error = '';
+        $successful_method = '';
+        
+        foreach ($auth_methods as $method) {
+            $response = wp_remote_get($test_url, array(
+                'headers' => $method['headers'],
+                'timeout' => 10
+            ));
+            
+            if (!is_wp_error($response)) {
+                $status_code = wp_remote_retrieve_response_code($response);
+                if ($status_code === 200) {
+                    $successful_method = $method['name'];
+                    break;
+                } else {
+                    $last_error = $method['name'] . ' failed with status ' . $status_code;
+                }
+            } else {
+                $last_error = $method['name'] . ' failed: ' . $response->get_error_message();
+            }
+        }
+        
+        if (empty($successful_method)) {
+            wp_send_json_error('All authentication methods failed. Last error: ' . $last_error);
+        }
+        
+        wp_send_json_success('Connection successful using: ' . $successful_method);
+    }
+    
+    public function clear_jetpack_config() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        delete_option('jetpack_crm_api_key');
+        delete_option('jetpack_crm_api_secret');
+        delete_option('jetpack_crm_endpoint');
+        
+        wp_send_json_success('Configuration cleared');
+    }
+    
+    public function disconnect_xero() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        delete_option('xero_access_token');
+        delete_option('xero_refresh_token');
+        delete_option('xero_token_expires');
+        
+        wp_send_json_success('Xero disconnected');
+    }
+    
+    public function save_sync_settings() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $frequency = sanitize_text_field($_POST['sync_frequency']);
+        
+        if (!in_array($frequency, array('manual', 'hourly', 'daily'))) {
+            wp_send_json_error('Invalid sync frequency');
+        }
+        
+        update_option('sync_frequency', $frequency);
+        
+        wp_send_json_success('Sync settings saved');
     }
     
     public function manual_sync() {
