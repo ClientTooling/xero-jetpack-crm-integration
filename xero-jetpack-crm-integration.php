@@ -195,266 +195,6 @@ class Xero_Jetpack_CRM_Integration {
                 </div>
             </div>
         </div>
-    }
-    
-    private function render_prerequisites_step($jetpack_crm_status, $dependencies_status) {
-        ?>
-        <div class="wizard-step">
-            <h2>Step 1: Prerequisites</h2>
-            <p>Let's make sure everything is ready for the integration.</p>
-            
-            <div class="prerequisites-grid">
-                <!-- Jetpack CRM Status -->
-                <div class="prerequisite-card">
-                    <h3>Jetpack CRM</h3>
-                    <div id="jetpack-crm-status">
-                        <?php if ($jetpack_crm_status['installed']): ?>
-                            <div class="status-success">
-                                <span class="dashicons dashicons-yes-alt"></span>
-                                <strong>Installed and Active</strong>
-                            </div>
-                        <?php else: ?>
-                            <div class="status-warning">
-                                <span class="dashicons dashicons-warning"></span>
-                                <strong>Not Installed</strong>
-                                <p>Jetpack CRM is required for this integration.</p>
-                                <button id="install-jetpack-crm" class="button button-primary">
-                                    Install Jetpack CRM
-                                </button>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-                
-                <!-- Dependencies Status -->
-                <div class="prerequisite-card">
-                    <h3>Dependencies</h3>
-                    <div id="dependencies-status">
-                        <?php if ($dependencies_status['installed']): ?>
-                            <div class="status-success">
-                                <span class="dashicons dashicons-yes-alt"></span>
-                                <strong>All Dependencies Installed</strong>
-                                <?php if ($dependencies_status['method'] === 'autoloader'): ?>
-                                    <br><small>Using fallback autoloader</small>
-                                <?php endif; ?>
-                            </div>
-                        <?php else: ?>
-                            <div class="status-warning">
-                                <span class="dashicons dashicons-warning"></span>
-                                <strong>Dependencies Missing</strong>
-                                <p>OAuth2 client library is required.</p>
-                                <button id="install-dependencies" class="button button-primary">
-                                    Install Dependencies
-                                </button>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Progress Bar -->
-            <div id="progress-container" style="display: none;">
-                <h3>Installation Progress</h3>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progress-fill"></div>
-                </div>
-                <div id="progress-text">Preparing installation...</div>
-            </div>
-        </div>
-        <?php
-    }
-    
-    private function render_xero_configuration_step() {
-        $xero_client_id = get_option('xero_client_id', '');
-        $xero_client_secret = get_option('xero_client_secret', '');
-        $xero_connected = !empty(get_option('xero_refresh_token'));
-        ?>
-        <div class="wizard-step">
-            <h2>Step 2: Xero Configuration</h2>
-            <p>Connect your Xero account to enable data synchronization.</p>
-            
-            <?php if ($xero_connected): ?>
-                <div class="status-success">
-                    <span class="dashicons dashicons-yes-alt"></span>
-                    <strong>Xero Connected Successfully!</strong>
-                    <p>Your Xero account is connected and ready.</p>
-                    <button id="test-xero-connection" class="button">Test Connection</button>
-                    <button id="disconnect-xero" class="button">Disconnect</button>
-                </div>
-            <?php else: ?>
-                <div class="configuration-form">
-                    <h3>Xero App Credentials</h3>
-                    <p>Enter your Xero app credentials from <a href="https://developer.xero.com" target="_blank">developer.xero.com</a></p>
-                    
-                    <table class="form-table">
-                        <tr>
-                            <th scope="row">
-                                <label for="xero_client_id">Client ID</label>
-                            </th>
-                            <td>
-                                <input type="text" id="xero_client_id" value="<?php echo esc_attr($xero_client_id); ?>" class="regular-text" />
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">
-                                <label for="xero_client_secret">Client Secret</label>
-                            </th>
-                            <td>
-                                <input type="password" id="xero_client_secret" value="<?php echo esc_attr($xero_client_secret); ?>" class="regular-text" />
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">
-                                <label for="redirect_uri">Redirect URI</label>
-                            </th>
-                            <td>
-                                <input type="text" id="redirect_uri" value="<?php echo esc_attr(admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback')); ?>" class="regular-text" readonly />
-                                <p class="description">Copy this URL to your Xero app configuration</p>
-                            </td>
-                        </tr>
-                    </table>
-                    
-                    <div class="step-actions">
-                        <button id="save-xero-credentials" class="button button-primary">Save Credentials</button>
-                        <button id="test-xero-credentials" class="button">Test Credentials</button>
-                        <button id="connect-xero" class="button button-primary" style="display: none;">Connect to Xero</button>
-                    </div>
-                    
-                    <div id="xero-test-result" style="display: none;"></div>
-                </div>
-            <?php endif; ?>
-        </div>
-        <?php
-    }
-    
-    private function render_jetpack_configuration_step() {
-        $jetpack_crm_api_key = get_option('jetpack_crm_api_key', '');
-        $jetpack_crm_api_secret = get_option('jetpack_crm_api_secret', '');
-        $jetpack_crm_endpoint = get_option('jetpack_crm_endpoint', '');
-        $jetpack_configured = !empty($jetpack_crm_api_key) && !empty($jetpack_crm_endpoint);
-        ?>
-        <div class="wizard-step">
-            <h2>Step 3: Jetpack CRM Configuration</h2>
-            <p>Configure your Jetpack CRM API settings for data synchronization.</p>
-            
-            <?php if ($jetpack_configured): ?>
-                <div class="status-success">
-                    <span class="dashicons dashicons-yes-alt"></span>
-                    <strong>Jetpack CRM Configured!</strong>
-                    <p>Your Jetpack CRM is properly configured and ready.</p>
-                    <button id="test-jetpack-connection" class="button">Test Connection</button>
-                    <button id="reconfigure-jetpack" class="button">Reconfigure</button>
-                </div>
-            <?php else: ?>
-                <div class="configuration-form">
-                    <h3>Jetpack CRM API Settings</h3>
-                    <p>Enter your Jetpack CRM API credentials and endpoint.</p>
-                    
-                    <table class="form-table">
-                        <tr>
-                            <th scope="row">
-                                <label for="jetpack_crm_api_key">API Key</label>
-                            </th>
-                            <td>
-                                <input type="text" id="jetpack_crm_api_key" value="<?php echo esc_attr($jetpack_crm_api_key); ?>" class="regular-text" />
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">
-                                <label for="jetpack_crm_api_secret">API Secret</label>
-                            </th>
-                            <td>
-                                <input type="password" id="jetpack_crm_api_secret" value="<?php echo esc_attr($jetpack_crm_api_secret); ?>" class="regular-text" />
-                                <p class="description">Optional - only if required by your setup</p>
-                            </td>
-                        </tr>
-                        <tr>
-                            <th scope="row">
-                                <label for="jetpack_crm_endpoint">Endpoint URL</label>
-                            </th>
-                            <td>
-                                <input type="url" id="jetpack_crm_endpoint" value="<?php echo esc_attr($jetpack_crm_endpoint); ?>" class="regular-text" />
-                                <p class="description">e.g., https://yourdomain.com/wp-json/zerobscrm/v1/</p>
-                            </td>
-                        </tr>
-                    </table>
-                    
-                    <div class="step-actions">
-                        <button id="save-jetpack-credentials" class="button button-primary">Save Configuration</button>
-                        <button id="test-jetpack-credentials" class="button">Test Connection</button>
-                    </div>
-                    
-                    <div id="jetpack-test-result" style="display: none;"></div>
-                </div>
-            <?php endif; ?>
-        </div>
-        <?php
-    }
-    
-    private function render_dashboard_step() {
-        $xero_connected = !empty(get_option('xero_refresh_token'));
-        $jetpack_configured = !empty(get_option('jetpack_crm_api_key')) && !empty(get_option('jetpack_crm_endpoint'));
-        $sync_frequency = get_option('sync_frequency', 'manual');
-        ?>
-        <div class="wizard-step">
-            <h2>Integration Dashboard</h2>
-            <p>Your Xero Jetpack CRM integration is ready to use!</p>
-            
-            <div class="dashboard-grid">
-                <div class="dashboard-card">
-                    <h3>Xero Integration</h3>
-                    <div class="status-indicator <?php echo $xero_connected ? 'success' : 'error'; ?>">
-                        <span class="dashicons dashicons-<?php echo $xero_connected ? 'yes-alt' : 'warning'; ?>"></span>
-                        <strong><?php echo $xero_connected ? 'Connected' : 'Not Connected'; ?></strong>
-                    </div>
-                    <div class="card-actions">
-                        <button id="test-xero-connection" class="button">Test Connection</button>
-                        <?php if ($xero_connected): ?>
-                            <button id="disconnect-xero" class="button">Disconnect</button>
-                        <?php else: ?>
-                            <button id="connect-xero" class="button button-primary">Connect</button>
-                        <?php endif; ?>
-                    </div>
-                </div>
-                
-                <div class="dashboard-card">
-                    <h3>Jetpack CRM</h3>
-                    <div class="status-indicator <?php echo $jetpack_configured ? 'success' : 'error'; ?>">
-                        <span class="dashicons dashicons-<?php echo $jetpack_configured ? 'yes-alt' : 'warning'; ?>"></span>
-                        <strong><?php echo $jetpack_configured ? 'Configured' : 'Not Configured'; ?></strong>
-                    </div>
-                    <div class="card-actions">
-                        <button id="test-jetpack-connection" class="button">Test Connection</button>
-                        <button id="reconfigure-jetpack" class="button">Reconfigure</button>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="sync-settings">
-                <h3>Sync Settings</h3>
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">Sync Frequency</th>
-                        <td>
-                            <select id="sync_frequency">
-                                <option value="manual" <?php selected($sync_frequency, 'manual'); ?>>Manual</option>
-                                <option value="hourly" <?php selected($sync_frequency, 'hourly'); ?>>Hourly</option>
-                                <option value="daily" <?php selected($sync_frequency, 'daily'); ?>>Daily</option>
-                            </select>
-                        </td>
-                    </tr>
-                </table>
-                <button id="save-sync-settings" class="button button-primary">Save Settings</button>
-            </div>
-            
-            <div class="sync-actions">
-                <h3>Sync Actions</h3>
-                <button id="manual-sync" class="button button-primary">Start Manual Sync</button>
-                <button id="view-logs" class="button">View Sync Logs</button>
-            </div>
-        </div>
-        <?php
-    }
         
         <script>
         jQuery(document).ready(function($) {
@@ -852,6 +592,265 @@ class Xero_Jetpack_CRM_Integration {
             }
         });
         </script>
+        <?php
+    }
+    
+    private function render_prerequisites_step($jetpack_crm_status, $dependencies_status) {
+        ?>
+        <div class="wizard-step">
+            <h2>Step 1: Prerequisites</h2>
+            <p>Let's make sure everything is ready for the integration.</p>
+            
+            <div class="prerequisites-grid">
+                <!-- Jetpack CRM Status -->
+                <div class="prerequisite-card">
+                    <h3>Jetpack CRM</h3>
+                    <div id="jetpack-crm-status">
+                        <?php if ($jetpack_crm_status['installed']): ?>
+                            <div class="status-success">
+                                <span class="dashicons dashicons-yes-alt"></span>
+                                <strong>Installed and Active</strong>
+                            </div>
+                        <?php else: ?>
+                            <div class="status-warning">
+                                <span class="dashicons dashicons-warning"></span>
+                                <strong>Not Installed</strong>
+                                <p>Jetpack CRM is required for this integration.</p>
+                                <button id="install-jetpack-crm" class="button button-primary">
+                                    Install Jetpack CRM
+                                </button>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                
+                <!-- Dependencies Status -->
+                <div class="prerequisite-card">
+                    <h3>Dependencies</h3>
+                    <div id="dependencies-status">
+                        <?php if ($dependencies_status['installed']): ?>
+                            <div class="status-success">
+                                <span class="dashicons dashicons-yes-alt"></span>
+                                <strong>All Dependencies Installed</strong>
+                                <?php if ($dependencies_status['method'] === 'autoloader'): ?>
+                                    <br><small>Using fallback autoloader</small>
+                                <?php endif; ?>
+                            </div>
+                        <?php else: ?>
+                            <div class="status-warning">
+                                <span class="dashicons dashicons-warning"></span>
+                                <strong>Dependencies Missing</strong>
+                                <p>OAuth2 client library is required.</p>
+                                <button id="install-dependencies" class="button button-primary">
+                                    Install Dependencies
+                                </button>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Progress Bar -->
+            <div id="progress-container" style="display: none;">
+                <h3>Installation Progress</h3>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill"></div>
+                </div>
+                <div id="progress-text">Preparing installation...</div>
+            </div>
+        </div>
+        <?php
+    }
+    
+    private function render_xero_configuration_step() {
+        $xero_client_id = get_option('xero_client_id', '');
+        $xero_client_secret = get_option('xero_client_secret', '');
+        $xero_connected = !empty(get_option('xero_refresh_token'));
+        ?>
+        <div class="wizard-step">
+            <h2>Step 2: Xero Configuration</h2>
+            <p>Connect your Xero account to enable data synchronization.</p>
+            
+            <?php if ($xero_connected): ?>
+                <div class="status-success">
+                    <span class="dashicons dashicons-yes-alt"></span>
+                    <strong>Xero Connected Successfully!</strong>
+                    <p>Your Xero account is connected and ready.</p>
+                    <button id="test-xero-connection" class="button">Test Connection</button>
+                    <button id="disconnect-xero" class="button">Disconnect</button>
+                </div>
+            <?php else: ?>
+                <div class="configuration-form">
+                    <h3>Xero App Credentials</h3>
+                    <p>Enter your Xero app credentials from <a href="https://developer.xero.com" target="_blank">developer.xero.com</a></p>
+                    
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row">
+                                <label for="xero_client_id">Client ID</label>
+                            </th>
+                            <td>
+                                <input type="text" id="xero_client_id" value="<?php echo esc_attr($xero_client_id); ?>" class="regular-text" />
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">
+                                <label for="xero_client_secret">Client Secret</label>
+                            </th>
+                            <td>
+                                <input type="password" id="xero_client_secret" value="<?php echo esc_attr($xero_client_secret); ?>" class="regular-text" />
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">
+                                <label for="redirect_uri">Redirect URI</label>
+                            </th>
+                            <td>
+                                <input type="text" id="redirect_uri" value="<?php echo esc_attr(admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback')); ?>" class="regular-text" readonly />
+                                <p class="description">Copy this URL to your Xero app configuration</p>
+                            </td>
+                        </tr>
+                    </table>
+                    
+                    <div class="step-actions">
+                        <button id="save-xero-credentials" class="button button-primary">Save Credentials</button>
+                        <button id="test-xero-credentials" class="button">Test Credentials</button>
+                        <button id="connect-xero" class="button button-primary" style="display: none;">Connect to Xero</button>
+                    </div>
+                    
+                    <div id="xero-test-result" style="display: none;"></div>
+                </div>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+    
+    private function render_jetpack_configuration_step() {
+        $jetpack_crm_api_key = get_option('jetpack_crm_api_key', '');
+        $jetpack_crm_api_secret = get_option('jetpack_crm_api_secret', '');
+        $jetpack_crm_endpoint = get_option('jetpack_crm_endpoint', '');
+        $jetpack_configured = !empty($jetpack_crm_api_key) && !empty($jetpack_crm_endpoint);
+        ?>
+        <div class="wizard-step">
+            <h2>Step 3: Jetpack CRM Configuration</h2>
+            <p>Configure your Jetpack CRM API settings for data synchronization.</p>
+            
+            <?php if ($jetpack_configured): ?>
+                <div class="status-success">
+                    <span class="dashicons dashicons-yes-alt"></span>
+                    <strong>Jetpack CRM Configured!</strong>
+                    <p>Your Jetpack CRM is properly configured and ready.</p>
+                    <button id="test-jetpack-connection" class="button">Test Connection</button>
+                    <button id="reconfigure-jetpack" class="button">Reconfigure</button>
+                </div>
+            <?php else: ?>
+                <div class="configuration-form">
+                    <h3>Jetpack CRM API Settings</h3>
+                    <p>Enter your Jetpack CRM API credentials and endpoint.</p>
+                    
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row">
+                                <label for="jetpack_crm_api_key">API Key</label>
+                            </th>
+                            <td>
+                                <input type="text" id="jetpack_crm_api_key" value="<?php echo esc_attr($jetpack_crm_api_key); ?>" class="regular-text" />
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">
+                                <label for="jetpack_crm_api_secret">API Secret</label>
+                            </th>
+                            <td>
+                                <input type="password" id="jetpack_crm_api_secret" value="<?php echo esc_attr($jetpack_crm_api_secret); ?>" class="regular-text" />
+                                <p class="description">Optional - only if required by your setup</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row">
+                                <label for="jetpack_crm_endpoint">Endpoint URL</label>
+                            </th>
+                            <td>
+                                <input type="url" id="jetpack_crm_endpoint" value="<?php echo esc_attr($jetpack_crm_endpoint); ?>" class="regular-text" />
+                                <p class="description">e.g., https://yourdomain.com/wp-json/zerobscrm/v1/</p>
+                            </td>
+                        </tr>
+                    </table>
+                    
+                    <div class="step-actions">
+                        <button id="save-jetpack-credentials" class="button button-primary">Save Configuration</button>
+                        <button id="test-jetpack-credentials" class="button">Test Connection</button>
+                    </div>
+                    
+                    <div id="jetpack-test-result" style="display: none;"></div>
+                </div>
+            <?php endif; ?>
+        </div>
+        <?php
+    }
+    
+    private function render_dashboard_step() {
+        $xero_connected = !empty(get_option('xero_refresh_token'));
+        $jetpack_configured = !empty(get_option('jetpack_crm_api_key')) && !empty(get_option('jetpack_crm_endpoint'));
+        $sync_frequency = get_option('sync_frequency', 'manual');
+        ?>
+        <div class="wizard-step">
+            <h2>Integration Dashboard</h2>
+            <p>Your Xero Jetpack CRM integration is ready to use!</p>
+            
+            <div class="dashboard-grid">
+                <div class="dashboard-card">
+                    <h3>Xero Integration</h3>
+                    <div class="status-indicator <?php echo $xero_connected ? 'success' : 'error'; ?>">
+                        <span class="dashicons dashicons-<?php echo $xero_connected ? 'yes-alt' : 'warning'; ?>"></span>
+                        <strong><?php echo $xero_connected ? 'Connected' : 'Not Connected'; ?></strong>
+                    </div>
+                    <div class="card-actions">
+                        <button id="test-xero-connection" class="button">Test Connection</button>
+                        <?php if ($xero_connected): ?>
+                            <button id="disconnect-xero" class="button">Disconnect</button>
+                        <?php else: ?>
+                            <button id="connect-xero" class="button button-primary">Connect</button>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                
+                <div class="dashboard-card">
+                    <h3>Jetpack CRM</h3>
+                    <div class="status-indicator <?php echo $jetpack_configured ? 'success' : 'error'; ?>">
+                        <span class="dashicons dashicons-<?php echo $jetpack_configured ? 'yes-alt' : 'warning'; ?>"></span>
+                        <strong><?php echo $jetpack_configured ? 'Configured' : 'Not Configured'; ?></strong>
+                    </div>
+                    <div class="card-actions">
+                        <button id="test-jetpack-connection" class="button">Test Connection</button>
+                        <button id="reconfigure-jetpack" class="button">Reconfigure</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="sync-settings">
+                <h3>Sync Settings</h3>
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">Sync Frequency</th>
+                        <td>
+                            <select id="sync_frequency">
+                                <option value="manual" <?php selected($sync_frequency, 'manual'); ?>>Manual</option>
+                                <option value="hourly" <?php selected($sync_frequency, 'hourly'); ?>>Hourly</option>
+                                <option value="daily" <?php selected($sync_frequency, 'daily'); ?>>Daily</option>
+                            </select>
+                        </td>
+                    </tr>
+                </table>
+                <button id="save-sync-settings" class="button button-primary">Save Settings</button>
+            </div>
+            
+            <div class="sync-actions">
+                <h3>Sync Actions</h3>
+                <button id="manual-sync" class="button button-primary">Start Manual Sync</button>
+                <button id="view-logs" class="button">View Sync Logs</button>
+            </div>
+        </div>
         <?php
     }
     
