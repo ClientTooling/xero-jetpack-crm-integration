@@ -638,7 +638,11 @@ class Xero_Jetpack_CRM_Integration {
             // Manual Sync
             $('#manual-sync').on('click', function() {
                 if (confirm('This will start a manual sync from Xero to Jetpack CRM. Continue?')) {
-                    showStatusBar('Starting manual sync...');
+                    var $button = $(this);
+                    $button.prop('disabled', true);
+                    $button.find('.material-spinner').show();
+                    $button.find('.button-text').hide();
+                    
                     $.ajax({
                         url: xeroJetpackCrm.ajaxUrl,
                         type: 'POST',
@@ -647,7 +651,6 @@ class Xero_Jetpack_CRM_Integration {
                             nonce: xeroJetpackCrm.nonce
                         },
                         success: function(response) {
-                            hideStatusBar();
                             if (response.success) {
                                 showNotification('Manual sync completed successfully!', 'success');
                                 updateStats();
@@ -656,8 +659,12 @@ class Xero_Jetpack_CRM_Integration {
                             }
                         },
                         error: function() {
-                            hideStatusBar();
                             showNotification('Manual sync failed due to network error', 'error');
+                        },
+                        complete: function() {
+                            $button.find('.material-spinner').hide();
+                            $button.find('.button-text').show();
+                            $button.prop('disabled', false);
                         }
                     });
                 }
@@ -694,6 +701,52 @@ class Xero_Jetpack_CRM_Integration {
             setInterval(function() {
                 updateStats();
             }, 30000); // Update every 30 seconds
+            
+            // Dashboard button handlers
+            $('#sync-settings').on('click', function() {
+                showNotification('Sync settings feature coming soon!', 'info');
+            });
+            
+            $('#view-logs').on('click', function() {
+                showNotification('Log viewer feature coming soon!', 'info');
+            });
+            
+            $('#export-data').on('click', function() {
+                showNotification('Data export feature coming soon!', 'info');
+            });
+            
+            // Update stats function
+            function updateStats() {
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_get_stats',
+                        nonce: xeroJetpackCrm.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            var stats = response.data;
+                            $('.stat-card h4').each(function(index) {
+                                var $this = $(this);
+                                if (index === 0) {
+                                    $this.text(numberFormat(stats.contacts || 0));
+                                } else if (index === 1) {
+                                    $this.text(numberFormat(stats.invoices || 0));
+                                } else if (index === 2) {
+                                    $this.text(stats.frequency || 'Manual');
+                                } else if (index === 3) {
+                                    $this.text(stats.last_sync || 'Never');
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+            
+            function numberFormat(num) {
+                return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+            }
             
             // Next button functionality
             $('#next-to-jetpack, #next-to-jetpack-from-config').on('click', function() {
@@ -1571,46 +1624,210 @@ class Xero_Jetpack_CRM_Integration {
         }
         
         private function render_dashboard_tab($xero_connected, $jetpack_configured) {
+            $last_sync = get_option('xero_last_sync', 0);
+            $total_contacts = get_option('xero_synced_contacts_count', 0);
+            $total_invoices = get_option('xero_synced_invoices_count', 0);
+            $sync_frequency = get_option('sync_frequency', 'manual');
             ?>
             <div class="tab-panel">
                 <div class="tab-header">
                     <h2>Integration Dashboard</h2>
-                    <p class="tab-description">Overview of your Xero and Jetpack CRM integration status</p>
+                    <p class="tab-description">Monitor and manage your Xero and Jetpack CRM integration</p>
                 </div>
                 
                 <div class="dashboard-content">
-                    <section class="connection-status">
-                        <h3>Connection Status</h3>
+                    <!-- Status Overview Cards -->
+                    <div class="dashboard-grid">
+                        <div class="status-card <?php echo $xero_connected ? 'connected' : 'disconnected'; ?>">
+                            <div class="card-icon">
+                                <span class="material-icons">account_balance</span>
+                            </div>
+                            <div class="card-content">
+                                <h3>Xero CRM</h3>
+                                <div class="status-indicator">
+                                    <span class="status-dot <?php echo $xero_connected ? 'active' : 'inactive'; ?>"></span>
+                                    <span class="status-text"><?php echo $xero_connected ? 'Connected' : 'Disconnected'; ?></span>
+                                </div>
+                                <p class="card-description">
+                                    <?php echo $xero_connected ? 'Your Xero account is connected and ready for sync' : 'Connect your Xero account to enable data synchronization'; ?>
+                                </p>
+                            </div>
+                            <div class="card-actions">
+                                <a href="?page=xero-jetpack-crm-integration&tab=xero" class="material-button material-button-outline">
+                                    <span class="material-icons">settings</span>
+                                    <?php echo $xero_connected ? 'Reconfigure' : 'Configure'; ?>
+                                </a>
+                            </div>
+                        </div>
                         
-                        <article class="service-status">
-                            <h4>Xero CRM</h4>
-                            <p><strong>Status:</strong> <?php echo $xero_connected ? 'Connected' : 'Disconnected'; ?></p>
-                            <p><?php echo $xero_connected ? 'Your Xero account is connected and ready for sync' : 'Connect your Xero account to enable data synchronization'; ?></p>
-                            <p><a href="?page=xero-jetpack-crm-integration&tab=xero"><?php echo $xero_connected ? 'Reconfigure Xero' : 'Configure Xero'; ?></a></p>
-                        </article>
-                        
-                        <article class="service-status">
-                            <h4>Jetpack CRM</h4>
-                            <p><strong>Status:</strong> <?php echo $jetpack_configured ? 'Connected' : 'Disconnected'; ?></p>
-                            <p><?php echo $jetpack_configured ? 'Jetpack CRM is configured and ready to receive data' : 'Configure Jetpack CRM to complete the integration'; ?></p>
-                            <p><a href="?page=xero-jetpack-crm-integration&tab=jetpack"><?php echo $jetpack_configured ? 'Reconfigure Jetpack CRM' : 'Configure Jetpack CRM'; ?></a></p>
-                        </article>
-                    </section>
+                        <div class="status-card <?php echo $jetpack_configured ? 'connected' : 'disconnected'; ?>">
+                            <div class="card-icon">
+                                <span class="material-icons">business</span>
+                            </div>
+                            <div class="card-content">
+                                <h3>Jetpack CRM</h3>
+                                <div class="status-indicator">
+                                    <span class="status-dot <?php echo $jetpack_configured ? 'active' : 'inactive'; ?>"></span>
+                                    <span class="status-text"><?php echo $jetpack_configured ? 'Connected' : 'Disconnected'; ?></span>
+                                </div>
+                                <p class="card-description">
+                                    <?php echo $jetpack_configured ? 'Jetpack CRM is configured and ready to receive data' : 'Configure Jetpack CRM to complete the integration'; ?>
+                                </p>
+                            </div>
+                            <div class="card-actions">
+                                <a href="?page=xero-jetpack-crm-integration&tab=jetpack" class="material-button material-button-outline">
+                                    <span class="material-icons">settings</span>
+                                    <?php echo $jetpack_configured ? 'Reconfigure' : 'Configure'; ?>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
                     
-                    <section class="integration-overview">
-                        <h3>Integration Overview</h3>
+                    <!-- Integration Status -->
+                    <div class="integration-status-card">
+                        <div class="status-header">
+                            <h3>Integration Status</h3>
+                            <?php if ($xero_connected && $jetpack_configured): ?>
+                                <span class="status-badge success">Complete</span>
+                            <?php else: ?>
+                                <span class="status-badge warning">Incomplete</span>
+                            <?php endif; ?>
+                        </div>
+                        
                         <?php if ($xero_connected && $jetpack_configured): ?>
-                            <div class="status-complete">
-                                <p><strong>✅ Integration Complete</strong></p>
-                                <p>Both systems are connected and ready for synchronization.</p>
+                            <div class="status-content success">
+                                <div class="status-icon">
+                                    <span class="material-icons">check_circle</span>
+                                </div>
+                                <div class="status-text">
+                                    <h4>Integration Complete</h4>
+                                    <p>Both systems are connected and ready for synchronization.</p>
+                                </div>
                             </div>
                         <?php else: ?>
-                            <div class="status-pending">
-                                <p><strong>⚠️ Configuration Required</strong></p>
-                                <p>Please configure both Xero and Jetpack CRM to complete the integration.</p>
+                            <div class="status-content warning">
+                                <div class="status-icon">
+                                    <span class="material-icons">warning</span>
+                                </div>
+                                <div class="status-text">
+                                    <h4>Configuration Required</h4>
+                                    <p>Please configure both Xero and Jetpack CRM to complete the integration.</p>
+                                </div>
                             </div>
                         <?php endif; ?>
-                    </section>
+                    </div>
+                    
+                    <!-- Statistics and Actions -->
+                    <?php if ($xero_connected && $jetpack_configured): ?>
+                        <div class="dashboard-stats">
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <span class="material-icons">people</span>
+                                </div>
+                                <div class="stat-content">
+                                    <h4><?php echo number_format($total_contacts); ?></h4>
+                                    <p>Synced Contacts</p>
+                                </div>
+                            </div>
+                            
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <span class="material-icons">receipt</span>
+                                </div>
+                                <div class="stat-content">
+                                    <h4><?php echo number_format($total_invoices); ?></h4>
+                                    <p>Synced Invoices</p>
+                                </div>
+                            </div>
+                            
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <span class="material-icons">schedule</span>
+                                </div>
+                                <div class="stat-content">
+                                    <h4><?php echo ucfirst($sync_frequency); ?></h4>
+                                    <p>Sync Frequency</p>
+                                </div>
+                            </div>
+                            
+                            <div class="stat-card">
+                                <div class="stat-icon">
+                                    <span class="material-icons">update</span>
+                                </div>
+                                <div class="stat-content">
+                                    <h4><?php echo $last_sync ? date('M j, Y', $last_sync) : 'Never'; ?></h4>
+                                    <p>Last Sync</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Action Buttons -->
+                        <div class="dashboard-actions">
+                            <button id="manual-sync" class="material-button material-button-primary">
+                                <span class="material-icons">sync</span>
+                                <span class="button-text">Manual Sync</span>
+                            </button>
+                            
+                            <button id="sync-settings" class="material-button material-button-outline">
+                                <span class="material-icons">settings</span>
+                                <span class="button-text">Sync Settings</span>
+                            </button>
+                            
+                            <button id="view-logs" class="material-button material-button-outline">
+                                <span class="material-icons">description</span>
+                                <span class="button-text">View Logs</span>
+                            </button>
+                            
+                            <button id="export-data" class="material-button material-button-outline">
+                                <span class="material-icons">download</span>
+                                <span class="button-text">Export Data</span>
+                            </button>
+                        </div>
+                    <?php endif; ?>
+                    
+                    <!-- Quick Setup Guide -->
+                    <?php if (!$xero_connected || !$jetpack_configured): ?>
+                        <div class="setup-guide">
+                            <h3>Quick Setup Guide</h3>
+                            <div class="setup-steps">
+                                <div class="setup-step <?php echo $jetpack_configured ? 'completed' : 'pending'; ?>">
+                                    <div class="step-number">1</div>
+                                    <div class="step-content">
+                                        <h4>Configure Jetpack CRM</h4>
+                                        <p>Set up your Jetpack CRM API credentials and endpoint</p>
+                                        <a href="?page=xero-jetpack-crm-integration&tab=jetpack" class="material-button material-button-outline">
+                                            <span class="material-icons">arrow_forward</span>
+                                            Get Started
+                                        </a>
+                                    </div>
+                                </div>
+                                
+                                <div class="setup-step <?php echo $xero_connected ? 'completed' : 'pending'; ?>">
+                                    <div class="step-number">2</div>
+                                    <div class="step-content">
+                                        <h4>Connect Xero</h4>
+                                        <p>Authenticate with your Xero account for data synchronization</p>
+                                        <a href="?page=xero-jetpack-crm-integration&tab=xero" class="material-button material-button-outline">
+                                            <span class="material-icons">arrow_forward</span>
+                                            Connect Now
+                                        </a>
+                                    </div>
+                                </div>
+                                
+                                <div class="setup-step <?php echo ($xero_connected && $jetpack_configured) ? 'completed' : 'pending'; ?>">
+                                    <div class="step-number">3</div>
+                                    <div class="step-content">
+                                        <h4>Start Syncing</h4>
+                                        <p>Begin synchronizing data between Xero and Jetpack CRM</p>
+                                        <button class="material-button material-button-primary" disabled>
+                                            <span class="material-icons">sync</span>
+                                            Ready to Sync
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                 </div>
             </div>
             <?php
