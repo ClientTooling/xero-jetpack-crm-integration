@@ -57,6 +57,8 @@ class Xero_Jetpack_CRM_Integration {
         add_action('wp_ajax_xero_clear_jetpack_config', array($this, 'clear_jetpack_config'));
         add_action('wp_ajax_xero_disconnect', array($this, 'disconnect_xero'));
         add_action('wp_ajax_xero_save_sync_settings', array($this, 'save_sync_settings'));
+        add_action('wp_ajax_xero_refresh_token', array($this, 'refresh_xero_token_ajax'));
+        add_action('wp_ajax_xero_get_status', array($this, 'get_xero_status_ajax'));
         add_action('wp_ajax_xero_get_stats', array($this, 'get_stats'));
         
         // Activation hook
@@ -146,7 +148,22 @@ class Xero_Jetpack_CRM_Integration {
             // Check Xero connection more thoroughly
             $xero_refresh_token = get_option('xero_refresh_token');
             $xero_access_token = get_option('xero_access_token');
+            $xero_token_expires = get_option('xero_token_expires', 0);
             $xero_connected = !empty($xero_refresh_token) && !empty($xero_access_token);
+            
+            // Check if token is expired and try to refresh
+            if ($xero_connected && $xero_token_expires > 0 && time() > $xero_token_expires) {
+                if ($this->refresh_xero_token()) {
+                    $xero_token_expires = get_option('xero_token_expires', 0);
+                } else {
+                    $xero_connected = false;
+                }
+            }
+            
+            // Get Xero organization info
+            $xero_tenant_name = get_option('xero_tenant_name', '');
+            $xero_tenant_type = get_option('xero_tenant_type', '');
+            $xero_connected_at = get_option('xero_connected_at', 0);
             
             $jetpack_configured = !empty(get_option('jetpack_crm_api_key')) && !empty(get_option('jetpack_crm_endpoint'));
             
@@ -192,8 +209,34 @@ class Xero_Jetpack_CRM_Integration {
                                     <span class="status-text"><?php echo $xero_connected ? 'Connected' : 'Disconnected'; ?></span>
                                 </div>
                                 <p class="card-description">
-                                    <?php echo $xero_connected ? 'Your Xero account is connected and ready for sync' : 'Connect your Xero account to enable data synchronization'; ?>
+                                    <?php if ($xero_connected): ?>
+                                        <?php if (!empty($xero_tenant_name)): ?>
+                                            Connected to <?php echo esc_html($xero_tenant_name); ?>
+                                            <?php if ($xero_tenant_type === 'DEMO'): ?>
+                                                (Demo - 30 min)
+                                            <?php endif; ?>
+                                        <?php else: ?>
+                                            Your Xero account is connected and ready for sync
+                                        <?php endif; ?>
+                                    <?php else: ?>
+                                        Connect your Xero account to enable data synchronization
+                                    <?php endif; ?>
                                 </p>
+                                <?php if ($xero_connected && $xero_token_expires > 0): ?>
+                                    <div class="token-info">
+                                        <small>
+                                            <?php 
+                                            $time_left = $xero_token_expires - time();
+                                            if ($time_left > 0) {
+                                                $minutes = floor($time_left / 60);
+                                                echo "Expires in {$minutes} minutes";
+                                            } else {
+                                                echo "Token expired";
+                                            }
+                                            ?>
+                                        </small>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         </div>
                         
@@ -418,6 +461,65 @@ class Xero_Jetpack_CRM_Integration {
                 showNotification('Redirect URI copied to clipboard!', 'success');
             }
             
+            // Update Xero status periodically
+            function updateXeroStatus() {
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_get_status',
+                        nonce: xeroJetpackCrm.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            var data = response.data;
+                            updateXeroStatusDisplay(data);
+                        }
+                    },
+                    error: function() {
+                        console.log('Failed to update Xero status');
+                    }
+                });
+            }
+            
+            function updateXeroStatusDisplay(data) {
+                var $statusCard = $('.status-card').first();
+                var $statusDot = $statusCard.find('.status-dot');
+                var $statusText = $statusCard.find('.status-text');
+                var $description = $statusCard.find('.card-description');
+                var $tokenInfo = $statusCard.find('.token-info');
+                
+                if (data.connected) {
+                    $statusCard.removeClass('disconnected').addClass('connected');
+                    $statusDot.removeClass('inactive').addClass('active');
+                    $statusText.text('Connected');
+                    
+                    var description = 'Your Xero account is connected and ready for sync';
+                    if (data.tenant_name) {
+                        description = 'Connected to ' + data.tenant_name;
+                        if (data.tenant_type === 'DEMO') {
+                            description += ' (Demo - 30 min)';
+                        }
+                    }
+                    $description.text(description);
+                    
+                    if (data.minutes_left > 0) {
+                        $tokenInfo.html('<small>Expires in ' + data.minutes_left + ' minutes</small>');
+                    } else {
+                        $tokenInfo.html('<small>Token expired</small>');
+                    }
+                } else {
+                    $statusCard.removeClass('connected').addClass('disconnected');
+                    $statusDot.removeClass('active').addClass('inactive');
+                    $statusText.text('Disconnected');
+                    $description.text('Connect your Xero account to enable data synchronization');
+                    $tokenInfo.empty();
+                }
+            }
+            
+            // Update status every 30 seconds
+            setInterval(updateXeroStatus, 30000);
+            
             // Function to update the toggle button state
             function updateXeroToggleButton(isConnected) {
                 var $button = $('#xero-toggle-connection');
@@ -547,13 +649,13 @@ class Xero_Jetpack_CRM_Integration {
                     
                     // Redirect to Xero OAuth
                     var redirectUri = encodeURIComponent($('#redirect_uri').val());
-                    var state = Math.random().toString(36).substring(7);
+                    var state = 'connect-xero|' + Math.random().toString(36).substring(7);
                     var authUrl = 'https://login.xero.com/identity/connect/authorize?' +
                         'response_type=code&' +
                         'client_id=' + clientId + '&' +
                         'redirect_uri=' + redirectUri + '&' +
-                        'scope=openid profile email accounting.transactions accounting.contacts.read&' +
-                        'state=' + state;
+                        'scope=openid profile email accounting.transactions accounting.contacts.read offline_access&' +
+                        'state=' + encodeURIComponent(state);
                     
                     // Log the redirect for debugging
                     console.log('Redirecting to Xero OAuth:', authUrl);
@@ -2993,6 +3095,10 @@ spl_autoload_register(function ($class) {
             $code = sanitize_text_field($_GET['code']);
             $state = sanitize_text_field($_GET['state']);
             
+            // Parse state parameter
+            $state_parts = explode('|', $state);
+            $action = isset($state_parts[0]) ? $state_parts[0] : '';
+            
             $client_id = get_option('xero_client_id');
             $client_secret = get_option('xero_client_secret');
             
@@ -3030,12 +3136,20 @@ spl_autoload_register(function ($class) {
                 update_option('xero_access_token', $data['access_token']);
                 update_option('xero_refresh_token', $data['refresh_token']);
                 update_option('xero_token_expires', time() + $data['expires_in']);
+                update_option('xero_connected_at', time());
+                
+                // Fetch basic organization info to verify connection
+                $this->fetch_xero_organization_info();
                 
                 // Log successful connection
                 error_log('Xero OAuth: Successfully connected. Access token saved.');
                 
-                // Redirect back to Xero tab with success message
-                wp_redirect(admin_url('options-general.php?page=xero-jetpack-crm-integration&tab=xero&connected=1&success=1'));
+                // Redirect based on action - if connecting, go to Jetpack tab
+                if ($action === 'connect-xero') {
+                    wp_redirect(admin_url('options-general.php?page=xero-jetpack-crm-integration&tab=jetpack&connected=1&success=1'));
+                } else {
+                    wp_redirect(admin_url('options-general.php?page=xero-jetpack-crm-integration&tab=xero&connected=1&success=1'));
+                }
                 exit;
             } else {
                 // Log error for debugging
@@ -3043,6 +3157,144 @@ spl_autoload_register(function ($class) {
                 wp_die('Failed to obtain access token. Error: ' . $body);
             }
         }
+    }
+    
+    private function fetch_xero_organization_info() {
+        $access_token = get_option('xero_access_token');
+        if (empty($access_token)) {
+            return false;
+        }
+        
+        $response = wp_remote_get('https://api.xero.com/connections', array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $access_token,
+                'Xero-tenant-id' => $this->get_xero_tenant_id()
+            ),
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            error_log('Xero API Error: ' . $response->get_error_message());
+            return false;
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (isset($data[0]['tenantId'])) {
+            update_option('xero_tenant_id', $data[0]['tenantId']);
+            update_option('xero_tenant_name', $data[0]['tenantName']);
+            update_option('xero_tenant_type', $data[0]['tenantType']);
+            return true;
+        }
+        
+        return false;
+    }
+    
+    private function get_xero_tenant_id() {
+        $tenant_id = get_option('xero_tenant_id');
+        if (empty($tenant_id)) {
+            $this->fetch_xero_organization_info();
+            $tenant_id = get_option('xero_tenant_id');
+        }
+        return $tenant_id;
+    }
+    
+    private function refresh_xero_token() {
+        $refresh_token = get_option('xero_refresh_token');
+        if (empty($refresh_token)) {
+            return false;
+        }
+        
+        $client_id = get_option('xero_client_id');
+        $client_secret = get_option('xero_client_secret');
+        
+        $response = wp_remote_post('https://identity.xero.com/connect/token', array(
+            'body' => array(
+                'grant_type' => 'refresh_token',
+                'client_id' => $client_id,
+                'client_secret' => $client_secret,
+                'refresh_token' => $refresh_token
+            ),
+            'headers' => array(
+                'Content-Type' => 'application/x-www-form-urlencoded'
+            ),
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            error_log('Xero token refresh failed: ' . $response->get_error_message());
+            return false;
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (isset($data['access_token'])) {
+            update_option('xero_access_token', $data['access_token']);
+            if (isset($data['refresh_token'])) {
+                update_option('xero_refresh_token', $data['refresh_token']);
+            }
+            if (isset($data['expires_in'])) {
+                update_option('xero_token_expires', time() + $data['expires_in']);
+            }
+            return true;
+        }
+        
+        return false;
+    }
+    
+    public function refresh_xero_token_ajax() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $success = $this->refresh_xero_token();
+        
+        if ($success) {
+            wp_send_json_success('Token refreshed successfully');
+        } else {
+            wp_send_json_error('Failed to refresh token');
+        }
+    }
+    
+    public function get_xero_status_ajax() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $access_token = get_option('xero_access_token');
+        $refresh_token = get_option('xero_refresh_token');
+        $token_expires = get_option('xero_token_expires', 0);
+        $tenant_name = get_option('xero_tenant_name', '');
+        $tenant_type = get_option('xero_tenant_type', '');
+        $connected_at = get_option('xero_connected_at', 0);
+        
+        $connected = !empty($access_token) && !empty($refresh_token);
+        
+        // Check if token is expired
+        if ($connected && $token_expires > 0 && time() > $token_expires) {
+            if ($this->refresh_xero_token()) {
+                $token_expires = get_option('xero_token_expires', 0);
+            } else {
+                $connected = false;
+            }
+        }
+        
+        $time_left = $token_expires > 0 ? max(0, $token_expires - time()) : 0;
+        $minutes_left = floor($time_left / 60);
+        
+        wp_send_json_success(array(
+            'connected' => $connected,
+            'tenant_name' => $tenant_name,
+            'tenant_type' => $tenant_type,
+            'minutes_left' => $minutes_left,
+            'connected_at' => $connected_at
+        ));
     }
     
     private function install_plugin_from_url($plugin_url) {

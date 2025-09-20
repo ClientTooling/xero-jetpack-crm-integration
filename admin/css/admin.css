@@ -931,10 +931,24 @@
 }
 
 .card-description {
-    margin: 0;
+    margin: 0 0 8px 0;
     color: #6c757d;
     font-size: 14px;
     line-height: 1.5;
+}
+
+.token-info {
+    margin-top: 8px;
+    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+    border-left: 3px solid #28a745;
+}
+
+.token-info small {
+    color: #6c757d;
+    font-size: 11px;
+    font-weight: 500;
 }
 
 .configuration-section {
