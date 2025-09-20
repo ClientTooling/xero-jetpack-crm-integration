@@ -268,7 +268,7 @@ class Xero_Jetpack_CRM_Integration {
                                     </div>
                                     
                                     <div class="form-actions">
-                                        <button id="jetpack-toggle-connection" class="btn <?php echo $jetpack_configured ? 'btn-danger' : 'btn-success'; ?>">
+                                        <button id="jetpack-toggle-connection" class="btn <?php echo $jetpack_configured ? 'btn-danger' : 'btn-success'; ?>" data-action="<?php echo $jetpack_configured ? 'disconnect' : 'connect'; ?>">
                                             <span class="material-icons"><?php echo $jetpack_configured ? 'link_off' : 'link'; ?></span>
                                             <?php echo $jetpack_configured ? 'Disconnect' : 'Connect'; ?>
                                         </button>
@@ -312,7 +312,7 @@ class Xero_Jetpack_CRM_Integration {
                                 </div>
                                 
                                 <div class="form-actions">
-                                    <button id="xero-toggle-connection" class="btn <?php echo $xero_connected ? 'btn-danger' : 'btn-success'; ?>">
+                                    <button id="xero-toggle-connection" class="btn <?php echo $xero_connected ? 'btn-danger' : 'btn-success'; ?>" data-action="<?php echo $xero_connected ? 'disconnect' : 'connect'; ?>">
                                         <span class="material-icons"><?php echo $xero_connected ? 'link_off' : 'link'; ?></span>
                                         <?php echo $xero_connected ? 'Disconnect' : 'Connect'; ?>
                                     </button>
@@ -365,6 +365,14 @@ class Xero_Jetpack_CRM_Integration {
         
         <script>
         jQuery(document).ready(function($) {
+            console.log('Xero Jetpack CRM Integration: JavaScript loaded');
+            console.log('jQuery version:', $.fn.jquery);
+            console.log('xeroJetpackCrm object:', typeof xeroJetpackCrm !== 'undefined' ? xeroJetpackCrm : 'undefined');
+            
+            // Test if buttons exist
+            console.log('Xero button found:', $('#xero-toggle-connection').length);
+            console.log('Jetpack button found:', $('#jetpack-toggle-connection').length);
+            
             // Check if we just returned from OAuth and show connected state
             if (window.location.search.includes('connected=1') && window.location.search.includes('success=1')) {
                 // Update toggle button to show disconnect state
@@ -519,7 +527,9 @@ class Xero_Jetpack_CRM_Integration {
             
             // Toggle Xero Connection
             $('#xero-toggle-connection').on('click', function() {
+                console.log('Xero button clicked');
                 var action = $(this).data('action');
+                console.log('Xero action:', action);
                 
                 if (action === 'connect') {
                     // Connect to Xero
@@ -585,7 +595,9 @@ class Xero_Jetpack_CRM_Integration {
             
             // Toggle Jetpack Connection
             $('#jetpack-toggle-connection').on('click', function() {
+                console.log('Jetpack button clicked');
                 var action = $(this).data('action');
+                console.log('Jetpack action:', action);
                 
                 if (action === 'connect') {
                     // Connect to Jetpack CRM
