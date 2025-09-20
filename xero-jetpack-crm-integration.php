@@ -3381,15 +3381,17 @@ spl_autoload_register(function ($class) {
             error_log('- Redirect URI: ' . $redirect_uri);
             error_log('- Token URL: ' . $token_url);
             
+            // Use Basic Auth header instead of client credentials in body
+            $auth_header = 'Basic ' . base64_encode($client_id . ':' . $client_secret);
+            
             $response = wp_remote_post($token_url, array(
                 'body' => array(
                     'grant_type' => 'authorization_code',
-                    'client_id' => $client_id,
-                    'client_secret' => $client_secret,
                     'code' => $code,
                     'redirect_uri' => $redirect_uri
                 ),
                 'headers' => array(
+                    'Authorization' => $auth_header,
                     'Content-Type' => 'application/x-www-form-urlencoded',
                     'Accept' => 'application/json'
                 ),
@@ -3397,7 +3399,9 @@ spl_autoload_register(function ($class) {
             ));
             
             if (is_wp_error($response)) {
-                error_log('OAuth Callback - Token exchange failed: ' . $response->get_error_message());
+                $error_message = 'OAuth Callback - Token exchange failed: ' . $response->get_error_message();
+                error_log($error_message);
+                error_log($error_message, 3, WP_CONTENT_DIR . '/uploads/xero-sync.log');
                 wp_die('Token exchange failed: ' . $response->get_error_message());
             }
             
@@ -3408,7 +3412,9 @@ spl_autoload_register(function ($class) {
             error_log('OAuth Callback - Token exchange response (HTTP ' . $http_code . '): ' . $body);
             
             if ($http_code !== 200) {
-                error_log('OAuth Callback - Token exchange failed with HTTP ' . $http_code . ': ' . $body);
+                $error_message = 'OAuth Callback - Token exchange failed with HTTP ' . $http_code . ': ' . $body;
+                error_log($error_message);
+                error_log($error_message, 3, WP_CONTENT_DIR . '/uploads/xero-sync.log');
                 wp_die('Token exchange failed with HTTP ' . $http_code . '. Response: ' . $body);
             }
             
@@ -3459,16 +3465,19 @@ spl_autoload_register(function ($class) {
                 $token_url = 'https://identity.xero.com/connect/token';
                 $redirect_uri = admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback');
                 
+                // Use Basic Auth header instead of client credentials in body
+                $auth_header = 'Basic ' . base64_encode($client_id . ':' . $client_secret);
+                
                 $response = wp_remote_post($token_url, array(
                     'body' => array(
                         'grant_type' => 'authorization_code',
-                        'client_id' => $client_id,
-                        'client_secret' => $client_secret,
                         'code' => $code,
                         'redirect_uri' => $redirect_uri
                     ),
                     'headers' => array(
-                        'Content-Type' => 'application/x-www-form-urlencoded'
+                        'Authorization' => $auth_header,
+                        'Content-Type' => 'application/x-www-form-urlencoded',
+                        'Accept' => 'application/json'
                     ),
                     'timeout' => 30
                 ));
@@ -3618,15 +3627,18 @@ spl_autoload_register(function ($class) {
         $client_id = get_option('xero_client_id');
         $client_secret = get_option('xero_client_secret');
         
+        // Use Basic Auth header for refresh token request
+        $auth_header = 'Basic ' . base64_encode($client_id . ':' . $client_secret);
+        
         $response = wp_remote_post('https://identity.xero.com/connect/token', array(
             'body' => array(
                 'grant_type' => 'refresh_token',
-                'client_id' => $client_id,
-                'client_secret' => $client_secret,
                 'refresh_token' => $refresh_token
             ),
             'headers' => array(
-                'Content-Type' => 'application/x-www-form-urlencoded'
+                'Authorization' => $auth_header,
+                'Content-Type' => 'application/x-www-form-urlencoded',
+                'Accept' => 'application/json'
             ),
             'timeout' => 30
         ));
@@ -3815,15 +3827,17 @@ spl_autoload_register(function ($class) {
         $token_url = 'https://identity.xero.com/connect/token';
         $redirect_uri = admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback');
         
+        // Use Basic Auth header for test token exchange
+        $auth_header = 'Basic ' . base64_encode($client_id . ':' . $client_secret);
+        
         $response = wp_remote_post($token_url, array(
             'body' => array(
                 'grant_type' => 'authorization_code',
-                'client_id' => $client_id,
-                'client_secret' => $client_secret,
                 'code' => 'test_code_123',
                 'redirect_uri' => $redirect_uri
             ),
             'headers' => array(
+                'Authorization' => $auth_header,
                 'Content-Type' => 'application/x-www-form-urlencoded',
                 'Accept' => 'application/json'
             ),
