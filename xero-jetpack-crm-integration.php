@@ -145,6 +145,10 @@ class Xero_Jetpack_CRM_Integration {
         $xero_connected = !empty(get_option('xero_refresh_token'));
         $jetpack_configured = !empty(get_option('jetpack_crm_api_key')) && !empty(get_option('jetpack_crm_endpoint'));
         
+        // Check for success messages
+        $show_success_message = isset($_GET['success']) && $_GET['success'] == '1';
+        $show_connected_message = isset($_GET['connected']) && $_GET['connected'] == '1';
+        
         // Determine current step - check URL parameter first
         $current_step = isset($_GET['step']) ? intval($_GET['step']) : 1;
         
@@ -157,19 +161,27 @@ class Xero_Jetpack_CRM_Integration {
             $current_step = 3; // Force back to Jetpack config if not configured
         }
         
-        // Auto-advance if prerequisites are met
+        // Auto-advance if prerequisites are met (but respect URL parameter)
         if ($current_step == 1 && $jetpack_crm_status['installed'] && $dependencies_status['installed']) {
             $current_step = 2; // Xero configuration
-            if ($xero_connected) {
-                $current_step = 3; // Jetpack CRM configuration
-                if ($jetpack_configured) {
-                    $current_step = 4; // Dashboard
-                }
-            }
+        }
+        
+        // If Xero is connected and we're on step 2, allow progression to step 3
+        if ($xero_connected && $current_step == 2 && isset($_GET['step']) && $_GET['step'] == '3') {
+            $current_step = 3;
         }
         ?>
         <div class="wrap">
             <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+            
+            <?php if ($show_success_message && $show_connected_message): ?>
+                <div class="notice notice-success is-dismissible" style="margin: 20px 0; padding: 15px; background: linear-gradient(135deg, #d4edda, #c3e6cb); border-left: 4px solid #28a745; border-radius: 8px;">
+                    <p style="margin: 0; font-weight: 600; color: #155724;">
+                        <span class="dashicons dashicons-yes-alt" style="color: #28a745; margin-right: 8px;"></span>
+                        <strong>Xero Connected Successfully!</strong> Your Xero account is now connected and ready for synchronization.
+                    </p>
+                </div>
+            <?php endif; ?>
             
             <!-- Setup Wizard -->
             <div class="xero-jetpack-crm-wizard">
@@ -214,6 +226,17 @@ class Xero_Jetpack_CRM_Integration {
         
         <script>
         jQuery(document).ready(function($) {
+            // Check if we just returned from OAuth and show connected state
+            if (window.location.search.includes('connected=1') && window.location.search.includes('success=1')) {
+                // Show connected button and next navigation
+                $('#xero-connected-status').show();
+                $('#xero-next-navigation').show();
+                $('#connect-xero').hide();
+                
+                // Show success message
+                showNotification('Xero connected successfully! You can now proceed to the next step.', 'success');
+            }
+            
             // Install Jetpack CRM
             $('#install-jetpack-crm').on('click', function() {
                 installComponent('jetpack-crm', $(this));
@@ -297,6 +320,9 @@ class Xero_Jetpack_CRM_Integration {
                     return;
                 }
                 
+                // Show loading state
+                $(this).addClass('loading').prop('disabled', true);
+                
                 // Redirect to Xero OAuth
                 var redirectUri = encodeURIComponent($('#redirect_uri').val());
                 var state = Math.random().toString(36).substring(7);
@@ -306,6 +332,9 @@ class Xero_Jetpack_CRM_Integration {
                     'redirect_uri=' + redirectUri + '&' +
                     'scope=openid profile email accounting.transactions accounting.contacts.read&' +
                     'state=' + state;
+                
+                // Log the redirect for debugging
+                console.log('Redirecting to Xero OAuth:', authUrl);
                 
                 window.location.href = authUrl;
             });
@@ -2143,53 +2172,64 @@ spl_autoload_register(function ($class) {
     }
     
     public function oauth_callback() {
-        if (!isset($_GET['code']) || !isset($_GET['state'])) {
-            wp_die('Invalid OAuth callback parameters');
-        }
-        
-        $code = sanitize_text_field($_GET['code']);
-        $state = sanitize_text_field($_GET['state']);
-        
-        $client_id = get_option('xero_client_id');
-        $client_secret = get_option('xero_client_secret');
-        
-        if (empty($client_id) || empty($client_secret)) {
-            wp_die('Xero credentials not configured');
-        }
-        
-        // Exchange code for tokens
-        $token_url = 'https://identity.xero.com/connect/token';
-        $redirect_uri = admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback');
-        
-        $response = wp_remote_post($token_url, array(
-            'body' => array(
-                'grant_type' => 'authorization_code',
-                'client_id' => $client_id,
-                'client_secret' => $client_secret,
-                'code' => $code,
-                'redirect_uri' => $redirect_uri
-            ),
-            'headers' => array(
-                'Content-Type' => 'application/x-www-form-urlencoded'
-            )
-        ));
-        
-        if (is_wp_error($response)) {
-            wp_die('Token exchange failed: ' . $response->get_error_message());
-        }
-        
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-        
-        if (isset($data['access_token'])) {
-            update_option('xero_access_token', $data['access_token']);
-            update_option('xero_refresh_token', $data['refresh_token']);
-            update_option('xero_token_expires', time() + $data['expires_in']);
+        // Handle both AJAX and direct callback
+        if (isset($_GET['action']) && $_GET['action'] === 'oauth_callback') {
+            if (!isset($_GET['code']) || !isset($_GET['state'])) {
+                wp_die('Invalid OAuth callback parameters');
+            }
             
-            wp_redirect(admin_url('admin.php?page=xero-jetpack-crm-integration&connected=1'));
-            exit;
-        } else {
-            wp_die('Failed to obtain access token: ' . $body);
+            $code = sanitize_text_field($_GET['code']);
+            $state = sanitize_text_field($_GET['state']);
+            
+            $client_id = get_option('xero_client_id');
+            $client_secret = get_option('xero_client_secret');
+            
+            if (empty($client_id) || empty($client_secret)) {
+                wp_die('Xero credentials not configured');
+            }
+            
+            // Exchange code for tokens
+            $token_url = 'https://identity.xero.com/connect/token';
+            $redirect_uri = admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback');
+            
+            $response = wp_remote_post($token_url, array(
+                'body' => array(
+                    'grant_type' => 'authorization_code',
+                    'client_id' => $client_id,
+                    'client_secret' => $client_secret,
+                    'code' => $code,
+                    'redirect_uri' => $redirect_uri
+                ),
+                'headers' => array(
+                    'Content-Type' => 'application/x-www-form-urlencoded'
+                ),
+                'timeout' => 30
+            ));
+            
+            if (is_wp_error($response)) {
+                wp_die('Token exchange failed: ' . $response->get_error_message());
+            }
+            
+            $body = wp_remote_retrieve_body($response);
+            $data = json_decode($body, true);
+            
+            if (isset($data['access_token'])) {
+                // Save tokens
+                update_option('xero_access_token', $data['access_token']);
+                update_option('xero_refresh_token', $data['refresh_token']);
+                update_option('xero_token_expires', time() + $data['expires_in']);
+                
+                // Log successful connection
+                error_log('Xero OAuth: Successfully connected. Access token saved.');
+                
+                // Redirect back to step 2 with success message
+                wp_redirect(admin_url('admin.php?page=xero-jetpack-crm-integration&step=2&connected=1&success=1'));
+                exit;
+            } else {
+                // Log error for debugging
+                error_log('Xero OAuth Error: ' . $body);
+                wp_die('Failed to obtain access token. Error: ' . $body);
+            }
         }
     }
     
