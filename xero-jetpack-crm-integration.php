@@ -483,14 +483,19 @@ class Xero_Jetpack_CRM_Integration {
             }
             
             function updateXeroStatusDisplay(data) {
-                var $statusCard = $('.status-card').first();
-                var $statusDot = $statusCard.find('.status-dot');
-                var $statusText = $statusCard.find('.status-text');
-                var $description = $statusCard.find('.card-description');
-                var $tokenInfo = $statusCard.find('.token-info');
+                // Target the Xero status card specifically (first status card)
+                var $xeroStatusCard = $('.status-card').first();
+                var $statusDot = $xeroStatusCard.find('.status-dot');
+                var $statusText = $xeroStatusCard.find('.status-text');
+                var $description = $xeroStatusCard.find('.card-description');
+                var $tokenInfo = $xeroStatusCard.find('.token-info');
+                
+                console.log('Updating Xero status:', data);
+                console.log('Status card found:', $xeroStatusCard.length);
+                console.log('Status text found:', $statusText.length);
                 
                 if (data.connected) {
-                    $statusCard.removeClass('disconnected').addClass('connected');
+                    $xeroStatusCard.removeClass('disconnected').addClass('connected');
                     $statusDot.removeClass('inactive').addClass('active');
                     $statusText.text('Connected');
                     
@@ -509,7 +514,7 @@ class Xero_Jetpack_CRM_Integration {
                         $tokenInfo.html('<small>Token expired</small>');
                     }
                 } else {
-                    $statusCard.removeClass('connected').addClass('disconnected');
+                    $xeroStatusCard.removeClass('connected').addClass('disconnected');
                     $statusDot.removeClass('active').addClass('inactive');
                     $statusText.text('Disconnected');
                     $description.text('Connect your Xero account to enable data synchronization');
@@ -517,8 +522,19 @@ class Xero_Jetpack_CRM_Integration {
                 }
             }
             
+            // Update status immediately on page load
+            updateXeroStatus();
+            
             // Update status every 30 seconds
             setInterval(updateXeroStatus, 30000);
+            
+            // Add manual refresh button for testing
+            $('.status-card').first().append('<button id="refresh-xero-status" class="btn btn-sm" style="margin-top: 10px; font-size: 12px; padding: 4px 8px;">Refresh Status</button>');
+            
+            $('#refresh-xero-status').on('click', function() {
+                console.log('Manual status refresh triggered');
+                updateXeroStatus();
+            });
             
             // Function to update the toggle button state
             function updateXeroToggleButton(isConnected) {

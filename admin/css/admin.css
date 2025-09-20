@@ -951,6 +951,22 @@
     font-weight: 500;
 }
 
+.btn-sm {
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    color: #6c757d;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-sm:hover {
+    background: #e9ecef;
+    color: #495057;
+}
+
 .configuration-section {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
