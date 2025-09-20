@@ -329,6 +329,28 @@ class Xero_Jetpack_CRM_Integration {
                                 </span>
                             </div>
                             
+                            <?php if ($xero_connected && !empty($xero_tenant_name)): ?>
+                                <div class="organization-info">
+                                    <div class="org-details">
+                                        <span class="material-icons">business</span>
+                                        <div class="org-text">
+                                            <strong>Connected Organization:</strong>
+                                            <span class="org-name"><?php echo esc_html($xero_tenant_name); ?></span>
+                                            <?php if ($xero_tenant_type === 'DEMO'): ?>
+                                                <span class="org-type demo">(Demo Account - 30 minutes)</span>
+                                            <?php elseif ($xero_tenant_type === 'LIVE'): ?>
+                                                <span class="org-type live">(Live Account)</span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                    <?php if ($xero_connected_at > 0): ?>
+                                        <div class="connection-time">
+                                            <small>Connected: <?php echo date('M j, Y \a\t g:i A', $xero_connected_at); ?></small>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endif; ?>
+                            
                             <div class="config-form">
                                 <div class="form-group">
                                     <label for="xero_client_id">Client ID</label>
@@ -513,12 +535,61 @@ class Xero_Jetpack_CRM_Integration {
                     } else {
                         $tokenInfo.html('<small>Token expired</small>');
                     }
+                    
+                    // Update organization info in config card
+                    updateOrganizationInfo(data);
                 } else {
                     $xeroStatusCard.removeClass('connected').addClass('disconnected');
                     $statusDot.removeClass('active').addClass('inactive');
                     $statusText.text('Disconnected');
                     $description.text('Connect your Xero account to enable data synchronization');
                     $tokenInfo.empty();
+                    
+                    // Hide organization info
+                    $('.organization-info').remove();
+                }
+            }
+            
+            function updateOrganizationInfo(data) {
+                var $configCard = $('.config-card').last(); // Xero config card
+                var $existingOrgInfo = $configCard.find('.organization-info');
+                
+                if ($existingOrgInfo.length > 0) {
+                    $existingOrgInfo.remove();
+                }
+                
+                if (data.connected && data.tenant_name) {
+                    var orgTypeClass = data.tenant_type === 'DEMO' ? 'demo' : 'live';
+                    var orgTypeText = data.tenant_type === 'DEMO' ? '(Demo Account - 30 minutes)' : '(Live Account)';
+                    
+                    var orgHtml = '<div class="organization-info">' +
+                        '<div class="org-details">' +
+                        '<span class="material-icons">business</span>' +
+                        '<div class="org-text">' +
+                        '<strong>Connected Organization:</strong>' +
+                        '<span class="org-name">' + data.tenant_name + '</span>' +
+                        '<span class="org-type ' + orgTypeClass + '">' + orgTypeText + '</span>' +
+                        '</div>' +
+                        '</div>';
+                    
+                    if (data.connected_at > 0) {
+                        var connectedDate = new Date(data.connected_at * 1000);
+                        var formattedDate = connectedDate.toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            hour12: true
+                        });
+                        orgHtml += '<div class="connection-time">' +
+                            '<small>Connected: ' + formattedDate + '</small>' +
+                            '</div>';
+                    }
+                    
+                    orgHtml += '</div>';
+                    
+                    $configCard.find('.config-header').after(orgHtml);
                 }
             }
             

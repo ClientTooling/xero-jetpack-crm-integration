@@ -1016,6 +1016,74 @@
     color: #ff9800;
 }
 
+.organization-info {
+    margin: 20px 0;
+    padding: 16px;
+    background: linear-gradient(135deg, #e8f5e8, #f1f8e9);
+    border-radius: 8px;
+    border-left: 4px solid #4caf50;
+}
+
+.org-details {
+    display: flex;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.org-details .material-icons {
+    color: #4caf50;
+    margin-right: 12px;
+    font-size: 20px;
+}
+
+.org-text {
+    flex: 1;
+}
+
+.org-text strong {
+    color: #2c3e50;
+    font-size: 14px;
+    display: block;
+    margin-bottom: 4px;
+}
+
+.org-name {
+    color: #2c3e50;
+    font-weight: 600;
+    font-size: 16px;
+    margin-right: 8px;
+}
+
+.org-type {
+    font-size: 12px;
+    font-weight: 500;
+    padding: 2px 6px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.org-type.demo {
+    background: #fff3e0;
+    color: #ff9800;
+}
+
+.org-type.live {
+    background: #e8f5e8;
+    color: #4caf50;
+}
+
+.connection-time {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(76, 175, 80, 0.2);
+}
+
+.connection-time small {
+    color: #6c757d;
+    font-size: 12px;
+}
+
 .prerequisites {
     padding: 20px;
     background: #f8f9fa;
