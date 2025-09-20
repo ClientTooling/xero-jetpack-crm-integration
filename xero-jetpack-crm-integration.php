@@ -142,7 +142,12 @@ class Xero_Jetpack_CRM_Integration {
         
         $jetpack_crm_status = $this->check_jetpack_crm_status();
         $dependencies_status = $this->check_dependencies_status();
-        $xero_connected = !empty(get_option('xero_refresh_token'));
+        
+        // Check Xero connection more thoroughly
+        $xero_refresh_token = get_option('xero_refresh_token');
+        $xero_access_token = get_option('xero_access_token');
+        $xero_connected = !empty($xero_refresh_token) && !empty($xero_access_token);
+        
         $jetpack_configured = !empty(get_option('jetpack_crm_api_key')) && !empty(get_option('jetpack_crm_endpoint'));
         
         // Check for success messages
@@ -152,13 +157,18 @@ class Xero_Jetpack_CRM_Integration {
         // Determine current step - check URL parameter first
         $current_step = isset($_GET['step']) ? intval($_GET['step']) : 1;
         
-        // Validate step based on prerequisites
+        // Debug logging
+        error_log('Xero Jetpack CRM - Step Debug: current_step=' . $current_step . ', xero_connected=' . ($xero_connected ? 'true' : 'false') . ', jetpack_configured=' . ($jetpack_configured ? 'true' : 'false') . ', show_connected_message=' . ($show_connected_message ? 'true' : 'false') . ', refresh_token=' . (!empty($xero_refresh_token) ? 'exists' : 'missing') . ', access_token=' . (!empty($xero_access_token) ? 'exists' : 'missing'));
+        
+        // Validate step based on prerequisites - but be more lenient
         if ($current_step > 1 && (!$jetpack_crm_status['installed'] || !$dependencies_status['installed'])) {
             $current_step = 1; // Force back to prerequisites if not ready
-        } elseif ($current_step > 2 && !$xero_connected) {
-            $current_step = 2; // Force back to Xero config if not connected
-        } elseif ($current_step > 3 && !$jetpack_configured) {
-            $current_step = 3; // Force back to Jetpack config if not configured
+        } elseif ($current_step == 3 && !$xero_connected) {
+            // Only force back to step 2 if we're trying to access step 3 without Xero connection
+            $current_step = 2;
+        } elseif ($current_step == 4 && !$jetpack_configured) {
+            // Only force back to step 3 if we're trying to access step 4 without Jetpack config
+            $current_step = 3;
         }
         
         // Auto-advance if prerequisites are met (but respect URL parameter)
@@ -166,8 +176,13 @@ class Xero_Jetpack_CRM_Integration {
             $current_step = 2; // Xero configuration
         }
         
-        // If Xero is connected and we're on step 2, allow progression to step 3
-        if ($xero_connected && $current_step == 2 && isset($_GET['step']) && $_GET['step'] == '3') {
+        // Allow progression to step 3 if Xero is connected OR if we have success parameters
+        if (($xero_connected || $show_connected_message) && $current_step == 2 && isset($_GET['step']) && $_GET['step'] == '3') {
+            $current_step = 3;
+        }
+        
+        // Temporary bypass for step 3 if coming from OAuth success (for debugging)
+        if ($show_connected_message && isset($_GET['step']) && $_GET['step'] == '3') {
             $current_step = 3;
         }
         ?>
