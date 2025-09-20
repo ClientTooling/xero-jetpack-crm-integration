@@ -3583,10 +3583,13 @@ spl_autoload_register(function ($class) {
             return false;
         }
         
+        // Get tenant ID without calling fetch_xero_organization_info to avoid circular dependency
+        $tenant_id = get_option('xero_tenant_id');
+        
         $response = wp_remote_get('https://api.xero.com/connections', array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $access_token,
-                'Xero-tenant-id' => $this->get_xero_tenant_id()
+                'Xero-tenant-id' => $tenant_id
             ),
             'timeout' => 30
         ));
@@ -3612,8 +3615,9 @@ spl_autoload_register(function ($class) {
     private function get_xero_tenant_id() {
         $tenant_id = get_option('xero_tenant_id');
         if (empty($tenant_id)) {
-            $this->fetch_xero_organization_info();
-            $tenant_id = get_option('xero_tenant_id');
+            // Don't call fetch_xero_organization_info here to avoid circular dependency
+            // Return empty string instead
+            return '';
         }
         return $tenant_id;
     }
