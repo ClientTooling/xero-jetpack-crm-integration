@@ -232,14 +232,14 @@ class Xero_Jetpack_CRM_Integration {
             function updateXeroToggleButton(isConnected) {
                 var $button = $('#xero-toggle-connection');
                 if (isConnected) {
-                    $button.removeClass('btn-success').addClass('btn-danger');
-                    $button.find('.dashicons').removeClass('dashicons-admin-links').addClass('dashicons-no-alt');
-                    $button.find('.btn-text').text('Disconnect from Xero');
+                    $button.removeClass('material-button-primary').addClass('material-button-danger');
+                    $button.find('.material-icons').text('link_off');
+                    $button.find('.button-text').text('Disconnect from Xero');
                     $button.data('action', 'disconnect');
                 } else {
-                    $button.removeClass('btn-danger').addClass('btn-success');
-                    $button.find('.dashicons').removeClass('dashicons-no-alt').addClass('dashicons-admin-links');
-                    $button.find('.btn-text').text('Connect to Xero');
+                    $button.removeClass('material-button-danger').addClass('material-button-primary');
+                    $button.find('.material-icons').text('link');
+                    $button.find('.button-text').text('Connect to Xero');
                     $button.data('action', 'connect');
                 }
             }
@@ -248,14 +248,14 @@ class Xero_Jetpack_CRM_Integration {
             function updateJetpackToggleButton(isConnected) {
                 var $button = $('#jetpack-toggle-connection');
                 if (isConnected) {
-                    $button.removeClass('btn-success').addClass('btn-danger');
-                    $button.find('.dashicons').removeClass('dashicons-admin-links').addClass('dashicons-no-alt');
-                    $button.find('.btn-text').text('Disconnect from Jetpack CRM');
+                    $button.removeClass('material-button-primary').addClass('material-button-danger');
+                    $button.find('.material-icons').text('link_off');
+                    $button.find('.button-text').text('Disconnect from Jetpack CRM');
                     $button.data('action', 'disconnect');
                 } else {
-                    $button.removeClass('btn-danger').addClass('btn-success');
-                    $button.find('.dashicons').removeClass('dashicons-no-alt').addClass('dashicons-admin-links');
-                    $button.find('.btn-text').text('Connect to Jetpack CRM');
+                    $button.removeClass('material-button-danger').addClass('material-button-primary');
+                    $button.find('.material-icons').text('link');
+                    $button.find('.button-text').text('Connect to Jetpack CRM');
                     $button.data('action', 'connect');
                 }
             }
@@ -348,7 +348,10 @@ class Xero_Jetpack_CRM_Integration {
                     }
                     
                     // Show loading state
-                    $(this).addClass('loading').prop('disabled', true);
+                    var $button = $(this);
+                    $button.prop('disabled', true);
+                    $button.find('.material-spinner').show();
+                    $button.find('.button-text').hide();
                     
                     // Redirect to Xero OAuth
                     var redirectUri = encodeURIComponent($('#redirect_uri').val());
@@ -368,7 +371,9 @@ class Xero_Jetpack_CRM_Integration {
                     // Disconnect from Xero
                     if (confirm('This will disconnect your Xero account. Continue?')) {
                         var $button = $(this);
-                        $button.addClass('loading').prop('disabled', true);
+                        $button.prop('disabled', true);
+                        $button.find('.material-spinner').show();
+                        $button.find('.button-text').hide();
                         
                         $.ajax({
                             url: xeroJetpackCrm.ajaxUrl,
@@ -380,14 +385,18 @@ class Xero_Jetpack_CRM_Integration {
                             success: function(response) {
                                 showNotification('Xero disconnected successfully!', 'success');
                                 updateXeroToggleButton(false); // Switch back to connect state
-                                $button.removeClass('loading').prop('disabled', false);
+                                $button.find('.material-spinner').hide();
+                                $button.find('.button-text').show();
+                                $button.prop('disabled', false);
                                 setTimeout(function() {
                                     location.reload();
                                 }, 1000);
                             },
                             error: function() {
                                 showNotification('Failed to disconnect Xero account', 'error');
-                                $button.removeClass('loading').prop('disabled', false);
+                                $button.find('.material-spinner').hide();
+                                $button.find('.button-text').show();
+                                $button.prop('disabled', false);
                             }
                         });
                     }
@@ -409,7 +418,9 @@ class Xero_Jetpack_CRM_Integration {
                     }
                     
                     var $button = $(this);
-                    $button.addClass('loading').prop('disabled', true);
+                    $button.prop('disabled', true);
+                    $button.find('.material-spinner').show();
+                    $button.find('.button-text').hide();
                     
                     $.ajax({
                         url: xeroJetpackCrm.ajaxUrl,
@@ -425,22 +436,30 @@ class Xero_Jetpack_CRM_Integration {
                             if (response.success) {
                                 showNotification('Jetpack CRM connected successfully!', 'success');
                                 updateJetpackToggleButton(true);
-                                $button.removeClass('loading').prop('disabled', false);
+                                $button.find('.material-spinner').hide();
+                                $button.find('.button-text').show();
+                                $button.prop('disabled', false);
                             } else {
                                 showNotification('Failed to connect to Jetpack CRM: ' + response.data, 'error');
-                                $button.removeClass('loading').prop('disabled', false);
+                                $button.find('.material-spinner').hide();
+                                $button.find('.button-text').show();
+                                $button.prop('disabled', false);
                             }
                         },
                         error: function() {
                             showNotification('Failed to connect to Jetpack CRM due to network error', 'error');
-                            $button.removeClass('loading').prop('disabled', false);
+                            $button.find('.material-spinner').hide();
+                            $button.find('.button-text').show();
+                            $button.prop('disabled', false);
                         }
                     });
                 } else if (action === 'disconnect') {
                     // Disconnect from Jetpack CRM
                     if (confirm('This will disconnect your Jetpack CRM. Continue?')) {
                         var $button = $(this);
-                        $button.addClass('loading').prop('disabled', true);
+                        $button.prop('disabled', true);
+                        $button.find('.material-spinner').show();
+                        $button.find('.button-text').hide();
                         
                         $.ajax({
                             url: xeroJetpackCrm.ajaxUrl,
@@ -452,14 +471,18 @@ class Xero_Jetpack_CRM_Integration {
                             success: function(response) {
                                 showNotification('Jetpack CRM disconnected successfully!', 'success');
                                 updateJetpackToggleButton(false);
-                                $button.removeClass('loading').prop('disabled', false);
+                                $button.find('.material-spinner').hide();
+                                $button.find('.button-text').show();
+                                $button.prop('disabled', false);
                                 setTimeout(function() {
                                     location.reload();
                                 }, 1000);
                             },
                             error: function() {
                                 showNotification('Failed to disconnect Jetpack CRM', 'error');
-                                $button.removeClass('loading').prop('disabled', false);
+                                $button.find('.material-spinner').hide();
+                                $button.find('.button-text').show();
+                                $button.prop('disabled', false);
                             }
                         });
                     }
@@ -1390,54 +1413,72 @@ class Xero_Jetpack_CRM_Integration {
                     </div>
                 <?php else: ?>
                     <div class="configuration-section">
-                        <div class="configuration-card">
+                        <div class="material-card">
                             <div class="card-header">
-                                <h3><span class="dashicons dashicons-admin-settings"></span> Jetpack CRM Settings</h3>
-                                <p class="card-description">Enter your Jetpack CRM API credentials</p>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="jetpack_crm_api_key">API Key</label>
-                                <div class="input-group">
-                                    <input type="password" id="jetpack_crm_api_key" name="jetpack_crm_api_key" 
-                                           value="<?php echo esc_attr(get_option('jetpack_crm_api_key')); ?>" 
-                                           placeholder="Enter your Jetpack CRM API key">
-                                    <button type="button" class="input-group-btn" onclick="togglePassword('jetpack_crm_api_key')">
-                                        <span class="dashicons dashicons-visibility"></span>
-                                    </button>
+                                <div class="header-icon">
+                                    <span class="material-icons">admin_panel_settings</span>
+                                </div>
+                                <div class="header-content">
+                                    <h3>Jetpack CRM Settings</h3>
+                                    <p>Enter your Jetpack CRM API credentials</p>
                                 </div>
                             </div>
                             
-                            <div class="form-group">
-                                <label for="jetpack_crm_api_secret">API Secret (Optional)</label>
-                                <div class="input-group">
-                                    <input type="password" id="jetpack_crm_api_secret" name="jetpack_crm_api_secret" 
-                                           value="<?php echo esc_attr(get_option('jetpack_crm_api_secret')); ?>" 
-                                           placeholder="Enter your Jetpack CRM API secret">
-                                    <button type="button" class="input-group-btn" onclick="togglePassword('jetpack_crm_api_secret')">
-                                        <span class="dashicons dashicons-visibility"></span>
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label for="jetpack_crm_endpoint">Endpoint URL</label>
-                                <input type="url" id="jetpack_crm_endpoint" name="jetpack_crm_endpoint" 
-                                       value="<?php echo esc_attr(get_option('jetpack_crm_endpoint')); ?>" 
-                                       placeholder="https://your-site.com/wp-json/zero-bs-crm/v1/">
-                            </div>
-                            
-                            <div class="action-buttons">
-                                <button id="jetpack-toggle-connection" class="btn <?php echo $jetpack_configured ? 'btn-danger' : 'btn-success'; ?>">
-                                    <span class="dashicons <?php echo $jetpack_configured ? 'dashicons-no-alt' : 'dashicons-admin-links'; ?>"></span>
-                                    <span class="btn-text"><?php echo $jetpack_configured ? 'Disconnect from Jetpack CRM' : 'Connect to Jetpack CRM'; ?></span>
-                                    <div class="btn-loading">
-                                        <div class="spinner"></div>
+                            <div class="card-body">
+                                <div class="material-form-group">
+                                    <label for="jetpack_crm_api_key" class="material-label">API Key</label>
+                                    <div class="material-input-container">
+                                        <input type="password" id="jetpack_crm_api_key" name="jetpack_crm_api_key" 
+                                               value="<?php echo esc_attr(get_option('jetpack_crm_api_key')); ?>" 
+                                               placeholder="Enter your Jetpack CRM API key"
+                                               class="material-input">
+                                        <button type="button" class="material-icon-button" onclick="togglePassword('jetpack_crm_api_key')">
+                                            <span class="material-icons">visibility</span>
+                                        </button>
+                                        <span class="material-underline"></span>
                                     </div>
-                                </button>
+                                </div>
+                                
+                                <div class="material-form-group">
+                                    <label for="jetpack_crm_api_secret" class="material-label">API Secret (Optional)</label>
+                                    <div class="material-input-container">
+                                        <input type="password" id="jetpack_crm_api_secret" name="jetpack_crm_api_secret" 
+                                               value="<?php echo esc_attr(get_option('jetpack_crm_api_secret')); ?>" 
+                                               placeholder="Enter your Jetpack CRM API secret"
+                                               class="material-input">
+                                        <button type="button" class="material-icon-button" onclick="togglePassword('jetpack_crm_api_secret')">
+                                            <span class="material-icons">visibility</span>
+                                        </button>
+                                        <span class="material-underline"></span>
+                                    </div>
+                                </div>
+                                
+                                <div class="material-form-group">
+                                    <label for="jetpack_crm_endpoint" class="material-label">Endpoint URL</label>
+                                    <div class="material-input-container">
+                                        <input type="url" id="jetpack_crm_endpoint" name="jetpack_crm_endpoint" 
+                                               value="<?php echo esc_attr(get_option('jetpack_crm_endpoint')); ?>" 
+                                               placeholder="https://your-site.com/wp-json/zero-bs-crm/v1/"
+                                               class="material-input">
+                                        <span class="material-underline"></span>
+                                    </div>
+                                    <div class="material-helper-text">
+                                        Enter your Jetpack CRM REST API endpoint URL
+                                    </div>
+                                </div>
+                                
+                                <div class="material-actions">
+                                    <button id="jetpack-toggle-connection" class="material-button <?php echo $jetpack_configured ? 'material-button-danger' : 'material-button-primary'; ?>">
+                                        <span class="material-icons"><?php echo $jetpack_configured ? 'link_off' : 'link'; ?></span>
+                                        <span class="button-text"><?php echo $jetpack_configured ? 'Disconnect from Jetpack CRM' : 'Connect to Jetpack CRM'; ?></span>
+                                        <div class="material-spinner" style="display: none;">
+                                            <div class="spinner"></div>
+                                        </div>
+                                    </button>
+                                </div>
+                                
+                                <div id="jetpack-test-result" class="material-snackbar" style="display: none;"></div>
                             </div>
-                            
-                            <div id="jetpack-test-result" class="test-result" style="display: none;"></div>
                         </div>
                     </div>
                 <?php endif; ?>
@@ -1457,57 +1498,72 @@ class Xero_Jetpack_CRM_Integration {
                 </div>
                 
                 <div class="configuration-section">
-                    <div class="configuration-card">
+                    <div class="material-card">
                         <div class="card-header">
-                            <h3><span class="dashicons dashicons-admin-settings"></span> Xero App Credentials</h3>
-                            <p class="card-description">Enter your Xero app credentials from the Xero Developer Portal</p>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="xero_client_id">Client ID</label>
-                            <input type="text" id="xero_client_id" name="xero_client_id" 
-                                   value="<?php echo esc_attr(get_option('xero_client_id')); ?>" 
-                                   placeholder="Enter your Xero Client ID">
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="xero_client_secret">Client Secret</label>
-                            <div class="input-group">
-                                <input type="password" id="xero_client_secret" name="xero_client_secret" 
-                                       value="<?php echo esc_attr(get_option('xero_client_secret')); ?>" 
-                                       placeholder="Enter your Xero Client Secret">
-                                <button type="button" class="input-group-btn" onclick="togglePassword('xero_client_secret')">
-                                    <span class="dashicons dashicons-visibility"></span>
-                                </button>
+                            <div class="header-icon">
+                                <span class="material-icons">settings</span>
+                            </div>
+                            <div class="header-content">
+                                <h3>Xero App Credentials</h3>
+                                <p>Enter your Xero app credentials from the Xero Developer Portal</p>
                             </div>
                         </div>
                         
-                        <div class="form-group">
-                            <label for="redirect_uri">Redirect URI</label>
-                            <div class="input-group">
-                                <input type="url" id="redirect_uri" name="redirect_uri" 
-                                       value="<?php echo esc_attr(admin_url('options-general.php?page=xero-jetpack-crm-integration&tab=xero')); ?>" 
-                                       readonly>
-                                <button type="button" class="input-group-btn" onclick="copyToClipboard('redirect_uri')">
-                                    <span class="dashicons dashicons-admin-page"></span>
-                                </button>
-                            </div>
-                            <div class="field-description">
-                                Copy this URL to your Xero app configuration
-                            </div>
-                        </div>
-                        
-                        <div class="action-buttons">
-                            <button id="xero-toggle-connection" class="btn <?php echo $xero_connected ? 'btn-danger' : 'btn-success'; ?>">
-                                <span class="dashicons <?php echo $xero_connected ? 'dashicons-no-alt' : 'dashicons-admin-links'; ?>"></span>
-                                <span class="btn-text"><?php echo $xero_connected ? 'Disconnect from Xero' : 'Connect to Xero'; ?></span>
-                                <div class="btn-loading">
-                                    <div class="spinner"></div>
+                        <div class="card-body">
+                            <div class="material-form-group">
+                                <label for="xero_client_id" class="material-label">Client ID</label>
+                                <div class="material-input-container">
+                                    <input type="text" id="xero_client_id" name="xero_client_id" 
+                                           value="<?php echo esc_attr(get_option('xero_client_id')); ?>" 
+                                           placeholder="Enter your Xero Client ID"
+                                           class="material-input">
+                                    <span class="material-underline"></span>
                                 </div>
-                            </button>
+                            </div>
+                            
+                            <div class="material-form-group">
+                                <label for="xero_client_secret" class="material-label">Client Secret</label>
+                                <div class="material-input-container">
+                                    <input type="password" id="xero_client_secret" name="xero_client_secret" 
+                                           value="<?php echo esc_attr(get_option('xero_client_secret')); ?>" 
+                                           placeholder="Enter your Xero Client Secret"
+                                           class="material-input">
+                                    <button type="button" class="material-icon-button" onclick="togglePassword('xero_client_secret')">
+                                        <span class="material-icons">visibility</span>
+                                    </button>
+                                    <span class="material-underline"></span>
+                                </div>
+                            </div>
+                            
+                            <div class="material-form-group">
+                                <label for="redirect_uri" class="material-label">Redirect URI</label>
+                                <div class="material-input-container">
+                                    <input type="url" id="redirect_uri" name="redirect_uri" 
+                                           value="<?php echo esc_attr(admin_url('options-general.php?page=xero-jetpack-crm-integration&tab=xero')); ?>" 
+                                           readonly
+                                           class="material-input">
+                                    <button type="button" class="material-icon-button" onclick="copyToClipboard('redirect_uri')">
+                                        <span class="material-icons">content_copy</span>
+                                    </button>
+                                    <span class="material-underline"></span>
+                                </div>
+                                <div class="material-helper-text">
+                                    Copy this URL to your Xero app configuration
+                                </div>
+                            </div>
+                            
+                            <div class="material-actions">
+                                <button id="xero-toggle-connection" class="material-button <?php echo $xero_connected ? 'material-button-danger' : 'material-button-primary'; ?>">
+                                    <span class="material-icons"><?php echo $xero_connected ? 'link_off' : 'link'; ?></span>
+                                    <span class="button-text"><?php echo $xero_connected ? 'Disconnect from Xero' : 'Connect to Xero'; ?></span>
+                                    <div class="material-spinner" style="display: none;">
+                                        <div class="spinner"></div>
+                                    </div>
+                                </button>
+                            </div>
+                            
+                            <div id="xero-test-result" class="material-snackbar" style="display: none;"></div>
                         </div>
-                        
-                        <div id="xero-test-result" class="test-result" style="display: none;"></div>
                     </div>
                 </div>
             </div>

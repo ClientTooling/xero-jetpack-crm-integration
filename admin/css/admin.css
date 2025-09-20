@@ -884,6 +884,265 @@
     margin: 5px 0;
 }
 
+/* Material UI Styles */
+@import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+
+.material-card {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    margin: 20px 0;
+}
+
+.material-card .card-header {
+    display: flex;
+    align-items: center;
+    padding: 24px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+}
+
+.material-card .header-icon {
+    margin-right: 16px;
+}
+
+.material-card .header-icon .material-icons {
+    font-size: 32px;
+    color: white;
+}
+
+.material-card .header-content h3 {
+    margin: 0 0 4px 0;
+    font-size: 20px;
+    font-weight: 500;
+    font-family: 'Roboto', sans-serif;
+}
+
+.material-card .header-content p {
+    margin: 0;
+    font-size: 14px;
+    opacity: 0.9;
+    font-family: 'Roboto', sans-serif;
+}
+
+.material-card .card-body {
+    padding: 24px;
+}
+
+.material-form-group {
+    margin-bottom: 24px;
+}
+
+.material-label {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #333;
+    font-family: 'Roboto', sans-serif;
+}
+
+.material-input-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.material-input {
+    width: 100%;
+    padding: 12px 0;
+    border: none;
+    border-bottom: 1px solid #ddd;
+    background: transparent;
+    font-size: 16px;
+    font-family: 'Roboto', sans-serif;
+    outline: none;
+    transition: border-color 0.3s ease;
+}
+
+.material-input:focus {
+    border-bottom-color: #667eea;
+}
+
+.material-input:focus + .material-underline {
+    transform: scaleX(1);
+}
+
+.material-underline {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: #667eea;
+    transform: scaleX(0);
+    transition: transform 0.3s ease;
+}
+
+.material-icon-button {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    transition: background-color 0.3s ease;
+}
+
+.material-icon-button:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.material-icon-button .material-icons {
+    font-size: 20px;
+    color: #666;
+}
+
+.material-helper-text {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #666;
+    font-family: 'Roboto', sans-serif;
+}
+
+.material-actions {
+    margin-top: 32px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.material-button {
+    display: inline-flex;
+    align-items: center;
+    padding: 12px 24px;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 500;
+    font-family: 'Roboto', sans-serif;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    position: relative;
+    overflow: hidden;
+}
+
+.material-button .material-icons {
+    margin-right: 8px;
+    font-size: 18px;
+}
+
+.material-button-primary {
+    background: #667eea;
+    color: white;
+    box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);
+}
+
+.material-button-primary:hover {
+    background: #5a6fd8;
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.4);
+    transform: translateY(-1px);
+}
+
+.material-button-danger {
+    background: #e74c3c;
+    color: white;
+    box-shadow: 0 2px 4px rgba(231, 76, 60, 0.3);
+}
+
+.material-button-danger:hover {
+    background: #c0392b;
+    box-shadow: 0 4px 8px rgba(231, 76, 60, 0.4);
+    transform: translateY(-1px);
+}
+
+.material-button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.material-spinner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.material-spinner .spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid transparent;
+    border-top: 2px solid currentColor;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.material-snackbar {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 4px;
+    font-family: 'Roboto', sans-serif;
+    font-size: 14px;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.material-snackbar.show {
+    opacity: 1;
+}
+
+.material-snackbar.success {
+    background: #4caf50;
+}
+
+.material-snackbar.error {
+    background: #f44336;
+}
+
+.material-snackbar.info {
+    background: #2196f3;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .material-card .card-header {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .material-card .header-icon {
+        margin-right: 0;
+        margin-bottom: 12px;
+    }
+    
+    .material-actions {
+        justify-content: center;
+    }
+    
+    .material-button {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
 /* Enhanced Progress Bar Styles */
 .wizard-progress {
     display: flex;
