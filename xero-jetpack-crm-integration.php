@@ -1522,67 +1522,39 @@ class Xero_Jetpack_CRM_Integration {
                     <p class="tab-description">Overview of your Xero and Jetpack CRM integration status</p>
                 </div>
                 
-                <div class="dashboard-grid">
-                    <div class="status-cards">
-                        <div class="status-card <?php echo $xero_connected ? 'connected' : 'disconnected'; ?>">
-                            <div class="status-icon">
-                                <span class="dashicons dashicons-chart-line"></span>
-                            </div>
-                            <div class="status-content">
-                                <h3>Xero CRM</h3>
-                                <p class="status-text"><?php echo $xero_connected ? 'Connected' : 'Disconnected'; ?></p>
-                                <p class="status-description">
-                                    <?php echo $xero_connected ? 'Your Xero account is connected and ready for sync' : 'Connect your Xero account to enable data synchronization'; ?>
-                                </p>
-                            </div>
-                            <div class="status-actions">
-                                <a href="?page=xero-jetpack-crm-integration&tab=xero" class="btn btn-outline">
-                                    <span class="dashicons dashicons-admin-settings"></span>
-                                    <?php echo $xero_connected ? 'Reconfigure' : 'Configure'; ?>
-                                </a>
-                            </div>
-                        </div>
+                <div class="dashboard-content">
+                    <section class="connection-status">
+                        <h3>Connection Status</h3>
                         
-                        <div class="status-card <?php echo $jetpack_configured ? 'connected' : 'disconnected'; ?>">
-                            <div class="status-icon">
-                                <span class="dashicons dashicons-admin-plugins"></span>
-                            </div>
-                            <div class="status-content">
-                                <h3>Jetpack CRM</h3>
-                                <p class="status-text"><?php echo $jetpack_configured ? 'Connected' : 'Disconnected'; ?></p>
-                                <p class="status-description">
-                                    <?php echo $jetpack_configured ? 'Jetpack CRM is configured and ready to receive data' : 'Configure Jetpack CRM to complete the integration'; ?>
-                                </p>
-                            </div>
-                            <div class="status-actions">
-                                <a href="?page=xero-jetpack-crm-integration&tab=jetpack" class="btn btn-outline">
-                                    <span class="dashicons dashicons-admin-settings"></span>
-                                    <?php echo $jetpack_configured ? 'Reconfigure' : 'Configure'; ?>
-                                </a>
-                            </div>
-                        </div>
-                    </div>
+                        <article class="service-status">
+                            <h4>Xero CRM</h4>
+                            <p><strong>Status:</strong> <?php echo $xero_connected ? 'Connected' : 'Disconnected'; ?></p>
+                            <p><?php echo $xero_connected ? 'Your Xero account is connected and ready for sync' : 'Connect your Xero account to enable data synchronization'; ?></p>
+                            <p><a href="?page=xero-jetpack-crm-integration&tab=xero"><?php echo $xero_connected ? 'Reconfigure Xero' : 'Configure Xero'; ?></a></p>
+                        </article>
+                        
+                        <article class="service-status">
+                            <h4>Jetpack CRM</h4>
+                            <p><strong>Status:</strong> <?php echo $jetpack_configured ? 'Connected' : 'Disconnected'; ?></p>
+                            <p><?php echo $jetpack_configured ? 'Jetpack CRM is configured and ready to receive data' : 'Configure Jetpack CRM to complete the integration'; ?></p>
+                            <p><a href="?page=xero-jetpack-crm-integration&tab=jetpack"><?php echo $jetpack_configured ? 'Reconfigure Jetpack CRM' : 'Configure Jetpack CRM'; ?></a></p>
+                        </article>
+                    </section>
                     
-                    <div class="integration-status">
-                        <div class="integration-card">
-                            <h3>Integration Status</h3>
-                            <div class="status-indicator">
-                                <?php if ($xero_connected && $jetpack_configured): ?>
-                                    <div class="status-success">
-                                        <span class="dashicons dashicons-yes-alt"></span>
-                                        <span>Integration Complete</span>
-                                    </div>
-                                    <p>Both systems are connected and ready for synchronization.</p>
-                                <?php else: ?>
-                                    <div class="status-warning">
-                                        <span class="dashicons dashicons-warning"></span>
-                                        <span>Configuration Required</span>
-                                    </div>
-                                    <p>Please configure both Xero and Jetpack CRM to complete the integration.</p>
-                                <?php endif; ?>
+                    <section class="integration-overview">
+                        <h3>Integration Overview</h3>
+                        <?php if ($xero_connected && $jetpack_configured): ?>
+                            <div class="status-complete">
+                                <p><strong>✅ Integration Complete</strong></p>
+                                <p>Both systems are connected and ready for synchronization.</p>
                             </div>
-                        </div>
-                    </div>
+                        <?php else: ?>
+                            <div class="status-pending">
+                                <p><strong>⚠️ Configuration Required</strong></p>
+                                <p>Please configure both Xero and Jetpack CRM to complete the integration.</p>
+                            </div>
+                        <?php endif; ?>
+                    </section>
                 </div>
             </div>
             <?php
