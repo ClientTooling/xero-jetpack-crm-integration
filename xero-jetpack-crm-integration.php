@@ -132,164 +132,7 @@ class Xero_Jetpack_CRM_Integration {
     }
     
     
-    private function render_settings_form() {
-        // Handle form submission
-        if (isset($_POST['submit']) && wp_verify_nonce($_POST['_wpnonce'], 'xero_jetpack_crm_settings')) {
-            $this->save_settings();
-        }
-        
-        // Get current settings
-        $xero_client_id = get_option('xero_client_id', '');
-        $xero_client_secret = get_option('xero_client_secret', '');
-        $jetpack_crm_api_key = get_option('jetpack_crm_api_key', '');
-        $jetpack_crm_api_secret = get_option('jetpack_crm_api_secret', '');
-        $jetpack_crm_endpoint = get_option('jetpack_crm_endpoint', '');
-        $sync_frequency = get_option('sync_frequency', 'manual');
-        $xero_refresh_token = get_option('xero_refresh_token', '');
-        ?>
-        <form method="post" action="">
-            <?php wp_nonce_field('xero_jetpack_crm_settings'); ?>
-            
-            <div class="card">
-                <h2><?php _e('Xero Configuration', 'xero-jetpack-crm-integration'); ?></h2>
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">
-                            <label for="xero_client_id"><?php _e('Xero Client ID', 'xero-jetpack-crm-integration'); ?></label>
-                        </th>
-                        <td>
-                            <input type="text" id="xero_client_id" name="xero_client_id" value="<?php echo esc_attr($xero_client_id); ?>" class="regular-text" />
-                            <p class="description"><?php _e('Enter your Xero app Client ID from developer.xero.com', 'xero-jetpack-crm-integration'); ?></p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">
-                            <label for="xero_client_secret"><?php _e('Xero Client Secret', 'xero-jetpack-crm-integration'); ?></label>
-                        </th>
-                        <td>
-                            <input type="password" id="xero_client_secret" name="xero_client_secret" value="<?php echo esc_attr($xero_client_secret); ?>" class="regular-text" />
-                            <p class="description"><?php _e('Enter your Xero app Client Secret from developer.xero.com', 'xero-jetpack-crm-integration'); ?></p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">
-                            <label for="redirect_uri"><?php _e('Redirect URI', 'xero-jetpack-crm-integration'); ?></label>
-                        </th>
-                        <td>
-                            <input type="text" id="redirect_uri" value="<?php echo esc_attr(admin_url('admin.php?page=xero-jetpack-crm-integration&action=oauth_callback')); ?>" class="regular-text" readonly />
-                            <p class="description"><?php _e('Copy this URL and add it to your Xero app configuration', 'xero-jetpack-crm-integration'); ?></p>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-
-            <div class="card">
-                <h2><?php _e('Jetpack CRM Configuration', 'xero-jetpack-crm-integration'); ?></h2>
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">
-                            <label for="jetpack_crm_api_key"><?php _e('Jetpack CRM API Key', 'xero-jetpack-crm-integration'); ?></label>
-                        </th>
-                        <td>
-                            <input type="text" id="jetpack_crm_api_key" name="jetpack_crm_api_key" value="<?php echo esc_attr($jetpack_crm_api_key); ?>" class="regular-text" />
-                            <p class="description"><?php _e('Enter your Jetpack CRM API key', 'xero-jetpack-crm-integration'); ?></p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">
-                            <label for="jetpack_crm_api_secret"><?php _e('Jetpack CRM API Secret', 'xero-jetpack-crm-integration'); ?></label>
-                        </th>
-                        <td>
-                            <input type="password" id="jetpack_crm_api_secret" name="jetpack_crm_api_secret" value="<?php echo esc_attr($jetpack_crm_api_secret); ?>" class="regular-text" />
-                            <p class="description"><?php _e('Enter your Jetpack CRM API secret (if required)', 'xero-jetpack-crm-integration'); ?></p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row">
-                            <label for="jetpack_crm_endpoint"><?php _e('Jetpack CRM Endpoint URL', 'xero-jetpack-crm-integration'); ?></label>
-                        </th>
-                        <td>
-                            <input type="url" id="jetpack_crm_endpoint" name="jetpack_crm_endpoint" value="<?php echo esc_attr($jetpack_crm_endpoint); ?>" class="regular-text" />
-                            <p class="description"><?php _e('Enter your Jetpack CRM API endpoint URL', 'xero-jetpack-crm-integration'); ?></p>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-
-            <div class="card">
-                <h2><?php _e('Sync Settings', 'xero-jetpack-crm-integration'); ?></h2>
-                <table class="form-table">
-                    <tr>
-                        <th scope="row">
-                            <label for="sync_frequency"><?php _e('Sync Frequency', 'xero-jetpack-crm-integration'); ?></label>
-                        </th>
-                        <td>
-                            <select id="sync_frequency" name="sync_frequency">
-                                <option value="manual" <?php selected($sync_frequency, 'manual'); ?>><?php _e('Manual', 'xero-jetpack-crm-integration'); ?></option>
-                                <option value="hourly" <?php selected($sync_frequency, 'hourly'); ?>><?php _e('Hourly', 'xero-jetpack-crm-integration'); ?></option>
-                                <option value="daily" <?php selected($sync_frequency, 'daily'); ?>><?php _e('Daily', 'xero-jetpack-crm-integration'); ?></option>
-                            </select>
-                            <p class="description"><?php _e('Set to manual initially for testing', 'xero-jetpack-crm-integration'); ?></p>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-
-            <div class="card">
-                <h2><?php _e('Authentication Status', 'xero-jetpack-crm-integration'); ?></h2>
-                <div id="auth-status">
-                    <?php if (!empty($xero_refresh_token)): ?>
-                        <div class="status-success">
-                            <span class="dashicons dashicons-yes-alt"></span>
-                            <?php _e('Connected to Xero', 'xero-jetpack-crm-integration'); ?>
-                            <button type="button" class="button" id="disconnect-xero"><?php _e('Disconnect', 'xero-jetpack-crm-integration'); ?></button>
-                        </div>
-                    <?php else: ?>
-                        <div class="status-warning">
-                            <span class="dashicons dashicons-warning"></span>
-                            <?php _e('Not connected to Xero', 'xero-jetpack-crm-integration'); ?>
-                            <button type="button" class="button button-primary" id="connect-xero"><?php _e('Connect to Xero', 'xero-jetpack-crm-integration'); ?></button>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <div class="card">
-                <h2><?php _e('Actions', 'xero-jetpack-crm-integration'); ?></h2>
-                <p>
-                    <button type="submit" name="submit" class="button button-primary"><?php _e('Save Settings', 'xero-jetpack-crm-integration'); ?></button>
-                    <button type="button" class="button" id="test-connection"><?php _e('Test Connection', 'xero-jetpack-crm-integration'); ?></button>
-                    <button type="button" class="button" id="manual-sync"><?php _e('Manual Sync', 'xero-jetpack-crm-integration'); ?></button>
-                </p>
-            </div>
-        </form>
-        <?php
-    }
     
-    private function save_settings() {
-        if (isset($_POST['xero_client_id'])) {
-            update_option('xero_client_id', sanitize_text_field($_POST['xero_client_id']));
-        }
-        if (isset($_POST['xero_client_secret'])) {
-            update_option('xero_client_secret', sanitize_text_field($_POST['xero_client_secret']));
-        }
-        if (isset($_POST['jetpack_crm_api_key'])) {
-            update_option('jetpack_crm_api_key', sanitize_text_field($_POST['jetpack_crm_api_key']));
-        }
-        if (isset($_POST['jetpack_crm_api_secret'])) {
-            update_option('jetpack_crm_api_secret', sanitize_text_field($_POST['jetpack_crm_api_secret']));
-        }
-        if (isset($_POST['jetpack_crm_endpoint'])) {
-            update_option('jetpack_crm_endpoint', esc_url_raw($_POST['jetpack_crm_endpoint']));
-        }
-        if (isset($_POST['sync_frequency'])) {
-            update_option('sync_frequency', sanitize_text_field($_POST['sync_frequency']));
-        }
-        
-        add_action('admin_notices', function() {
-            echo '<div class="notice notice-success"><p>' . __('Settings saved successfully!', 'xero-jetpack-crm-integration') . '</p></div>';
-        });
-    }
     
     public function admin_page() {
         if (!current_user_can('manage_options')) {
@@ -1234,68 +1077,7 @@ spl_autoload_register(function ($class) {
 });
 
 // Mock OAuth2 classes for basic functionality
-if (!class_exists("League\\\\OAuth2\\\\Client\\\\Provider\\\\Xero")) {
-    class League_OAuth2_Client_Provider_Xero {
-        private $options;
-        
-        public function __construct($options = []) {
-            $this->options = $options;
-        }
-        
-        public function getAuthorizationUrl($options = []) {
-            $params = array_merge([
-                "response_type" => "code",
-                "client_id" => $this->options["clientId"] ?? "",
-                "redirect_uri" => $this->options["redirectUri"] ?? "",
-                "scope" => "openid profile email accounting.transactions accounting.contacts.read",
-                "state" => wp_generate_password(32, false)
-            ], $options);
-            
-            return "https://login.xero.com/identity/connect/authorize?" . http_build_query($params);
-        }
-        
-        public function getAccessToken($grant, $options = []) {
-            // Mock implementation - in real usage, this would make API calls
-            return new League_OAuth2_Client_Token_AccessToken([
-                "access_token" => "mock_token_" . wp_generate_password(32, false),
-                "expires" => 3600,
-                "refresh_token" => "mock_refresh_" . wp_generate_password(32, false)
-            ]);
-        }
-    }
-    
-    // Create an alias for the namespaced class name
-    class_alias("League_OAuth2_Client_Provider_Xero", "League\\\\OAuth2\\\\Client\\\\Provider\\\\Xero");
-}
-
-if (!class_exists("League\\\\OAuth2\\\\Client\\\\Token\\\\AccessToken")) {
-    class League_OAuth2_Client_Token_AccessToken {
-        private $token;
-        private $expires;
-        private $refresh_token;
-        
-        public function __construct($options = []) {
-            $this->token = $options["access_token"] ?? "";
-            $this->expires = $options["expires"] ?? 3600;
-            $this->refresh_token = $options["refresh_token"] ?? "";
-        }
-        
-        public function getToken() {
-            return $this->token;
-        }
-        
-        public function getExpires() {
-            return $this->expires;
-        }
-        
-        public function getRefreshToken() {
-            return $this->refresh_token;
-        }
-    }
-    
-    // Create an alias for the namespaced class name
-    class_alias("League_OAuth2_Client_Token_AccessToken", "League\\\\OAuth2\\\\Client\\\\Token\\\\AccessToken");
-}
+        // Mock classes will be defined in the autoloader file
 ';
             
             // Write the autoloader file
@@ -1879,6 +1661,70 @@ spl_autoload_register(function ($class) {
         
         add_option('xero_jetpack_crm_options', $default_options);
     }
+}
+
+// Mock OAuth2 classes for basic functionality
+if (!class_exists("League\\OAuth2\\Client\\Provider\\Xero")) {
+    class League_OAuth2_Client_Provider_Xero {
+        private $options;
+        
+        public function __construct($options = []) {
+            $this->options = $options;
+        }
+        
+        public function getAuthorizationUrl($options = []) {
+            $params = array_merge([
+                "response_type" => "code",
+                "client_id" => $this->options["clientId"] ?? "",
+                "redirect_uri" => $this->options["redirectUri"] ?? "",
+                "scope" => "openid profile email accounting.transactions accounting.contacts.read",
+                "state" => wp_generate_password(32, false)
+            ], $options);
+            
+            return "https://login.xero.com/identity/connect/authorize?" . http_build_query($params);
+        }
+        
+        public function getAccessToken($grant, $options = []) {
+            // Mock implementation - in real usage, this would make API calls
+            return new League_OAuth2_Client_Token_AccessToken([
+                "access_token" => "mock_token_" . wp_generate_password(32, false),
+                "expires" => 3600,
+                "refresh_token" => "mock_refresh_" . wp_generate_password(32, false)
+            ]);
+        }
+    }
+    
+    // Create an alias for the namespaced class name
+    class_alias("League_OAuth2_Client_Provider_Xero", "League\\OAuth2\\Client\\Provider\\Xero");
+}
+
+if (!class_exists("League\\OAuth2\\Client\\Token\\AccessToken")) {
+    class League_OAuth2_Client_Token_AccessToken {
+        private $token;
+        private $expires;
+        private $refresh_token;
+        
+        public function __construct($options = []) {
+            $this->token = $options["access_token"] ?? "";
+            $this->expires = $options["expires"] ?? 3600;
+            $this->refresh_token = $options["refresh_token"] ?? "";
+        }
+        
+        public function getToken() {
+            return $this->token;
+        }
+        
+        public function getExpires() {
+            return $this->expires;
+        }
+        
+        public function getRefreshToken() {
+            return $this->refresh_token;
+        }
+    }
+    
+    // Create an alias for the namespaced class name
+    class_alias("League_OAuth2_Client_Token_AccessToken", "League\\OAuth2\\Client\\Token\\AccessToken");
 }
 
 // Initialize the plugin
