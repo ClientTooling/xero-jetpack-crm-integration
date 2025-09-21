@@ -1370,6 +1370,10 @@ class Xero_Jetpack_CRM_Integration {
                     if (stats) stats += ' | ';
                     stats += 'Invoices: ' + progress.synced_invoices + '/' + progress.total_invoices;
                 }
+                if (progress.total_payments > 0) {
+                    if (stats) stats += ' | ';
+                    stats += 'Payments: ' + progress.synced_payments + '/' + progress.total_payments;
+                }
                 if (progress.errors > 0) {
                     if (stats) stats += ' | ';
                     stats += 'Errors: ' + progress.errors;
@@ -3918,7 +3922,7 @@ spl_autoload_register(function ($class) {
         $from_date = date('Y-m-d', strtotime('-12 months'));
         $to_date = date('Y-m-d');
         
-        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Invoices?where=Date>=' . $from_date . '&where=Date<=' . $to_date, array(
+        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Invoices', array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $access_token,
                 'Xero-tenant-id' => $tenant_id,
@@ -3961,6 +3965,8 @@ spl_autoload_register(function ($class) {
         // Process each invoice
         foreach ($data['Invoices'] as $index => $xero_invoice) {
             try {
+                $this->log_sync_message('Processing invoice: ' . $xero_invoice['InvoiceNumber'] . ' - Amount: ' . (isset($xero_invoice['Total']) ? $xero_invoice['Total'] : 'N/A'));
+                
                 $this->update_sync_progress('syncing_invoices', 'Uploading to Jetpack CRM: Syncing invoices...', 50 + (($index / $total_invoices) * 40), array(
                     'current_invoice' => $xero_invoice['InvoiceNumber'],
                     'synced_invoices' => $synced,
@@ -3970,8 +3976,10 @@ spl_autoload_register(function ($class) {
                 $result = $this->sync_single_invoice($xero_invoice);
                 if ($result) {
                     $synced++;
+                    $this->log_sync_message('Successfully synced invoice: ' . $xero_invoice['InvoiceNumber']);
                 } else {
                     $errors++;
+                    $this->log_sync_message('Failed to sync invoice: ' . $xero_invoice['InvoiceNumber']);
                 }
             } catch (Exception $e) {
                 $this->log_sync_message('Error syncing invoice ' . $xero_invoice['InvoiceNumber'] . ': ' . $e->getMessage());
@@ -3997,7 +4005,7 @@ spl_autoload_register(function ($class) {
         $from_date = date('Y-m-d', strtotime('-12 months'));
         $to_date = date('Y-m-d');
         
-        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Payments?where=Date>=' . $from_date . '&where=Date<=' . $to_date, array(
+        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Payments', array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $access_token,
                 'Xero-tenant-id' => $tenant_id,
@@ -4040,6 +4048,8 @@ spl_autoload_register(function ($class) {
         // Process each payment
         foreach ($data['Payments'] as $index => $xero_payment) {
             try {
+                $this->log_sync_message('Processing payment: ' . $xero_payment['PaymentID'] . ' - Amount: ' . (isset($xero_payment['Amount']) ? $xero_payment['Amount'] : 'N/A'));
+                
                 $this->update_sync_progress('syncing_payments', 'Uploading to Jetpack CRM: Syncing payments...', 80 + (($index / $total_payments) * 20), array(
                     'current_payment' => 'Payment ' . $xero_payment['PaymentID'],
                     'synced_payments' => $synced,
@@ -4049,8 +4059,10 @@ spl_autoload_register(function ($class) {
                 $result = $this->sync_single_payment($xero_payment);
                 if ($result) {
                     $synced++;
+                    $this->log_sync_message('Successfully synced payment: ' . $xero_payment['PaymentID']);
                 } else {
                     $errors++;
+                    $this->log_sync_message('Failed to sync payment: ' . $xero_payment['PaymentID']);
                 }
             } catch (Exception $e) {
                 $this->log_sync_message('Error syncing payment ' . $xero_payment['PaymentID'] . ': ' . $e->getMessage());
@@ -4158,7 +4170,7 @@ spl_autoload_register(function ($class) {
         $from_date = date('Y-m-d', strtotime('-12 months'));
         $to_date = date('Y-m-d');
         
-        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Invoices?where=Date>=' . $from_date . '&where=Date<=' . $to_date, array(
+        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Invoices', array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $access_token,
                 'Xero-tenant-id' => $tenant_id,
