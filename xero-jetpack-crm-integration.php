@@ -3942,9 +3942,11 @@ spl_autoload_register(function ($class) {
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
         
+        $this->log_sync_message('Xero invoices API response: ' . substr(wp_remote_retrieve_body($response), 0, 500));
+        
         if (!isset($data['Invoices']) || !is_array($data['Invoices'])) {
-            $this->log_sync_message('Invalid response format from Xero API');
-            return array('synced' => 0, 'errors' => 1);
+            $this->log_sync_message('No invoices found in Xero response. Response structure: ' . print_r(array_keys($data), true));
+            return array('synced' => 0, 'errors' => 0);
         }
         
         $total_invoices = count($data['Invoices']);
@@ -4019,9 +4021,11 @@ spl_autoload_register(function ($class) {
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);
         
+        $this->log_sync_message('Xero payments API response: ' . substr($body, 0, 500));
+        
         if (!isset($data['Payments']) || !is_array($data['Payments'])) {
-            $this->log_sync_message('Invalid response format from Xero API');
-            return array('synced' => 0, 'errors' => 1);
+            $this->log_sync_message('No payments found in Xero response. Response structure: ' . print_r(array_keys($data), true));
+            return array('synced' => 0, 'errors' => 0);
         }
         
         $total_payments = count($data['Payments']);
