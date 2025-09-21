@@ -65,6 +65,7 @@ class Xero_Jetpack_CRM_Integration {
         add_action('wp_ajax_xero_test_token_exchange', array($this, 'test_token_exchange_ajax'));
         add_action('wp_ajax_xero_get_sync_progress', array($this, 'get_sync_progress_ajax'));
         add_action('wp_ajax_xero_test_sync', array($this, 'test_sync_ajax'));
+        add_action('wp_ajax_xero_test_endpoints', array($this, 'test_endpoints_ajax'));
         
         // Add OAuth callback handler
         add_action('init', array($this, 'handle_oauth_callback'));
@@ -453,6 +454,10 @@ class Xero_Jetpack_CRM_Integration {
                             </div>
                             
                             <div class="actions-section">
+                                <button id="test-endpoints" class="btn btn-outline" style="background: #6f42c1; color: white; border-color: #6f42c1;">
+                                    <span class="material-icons">api</span>
+                                    Test Endpoints
+                                </button>
                                 <button id="test-sync" class="btn btn-outline" style="background: #17a2b8; color: white; border-color: #17a2b8;">
                                     <span class="material-icons">bug_report</span>
                                     Test Sync
@@ -1228,6 +1233,52 @@ class Xero_Jetpack_CRM_Integration {
                         }
                     });
                 }
+            });
+            
+            // Test Endpoints Button
+            $('#test-endpoints').on('click', function() {
+                var $button = $(this);
+                var originalHtml = $button.html();
+                $button.prop('disabled', true).html('<span class="material-icons spin">api</span> Testing...');
+                
+                $.ajax({
+                    url: xeroJetpackCrm.ajaxUrl,
+                    type: 'POST',
+                    data: {
+                        action: 'xero_test_endpoints',
+                        nonce: xeroJetpackCrm.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            var results = response.data;
+                            var message = 'Endpoint test completed! Check console for details.';
+                            showNotification(message, 'success');
+                            console.log('Endpoint Test Results:', results);
+                            
+                            // Show which endpoints work
+                            var workingEndpoints = [];
+                            for (var name in results) {
+                                if (results[name].success) {
+                                    workingEndpoints.push(name + ' (HTTP ' + results[name].http_code + ')');
+                                }
+                            }
+                            
+                            if (workingEndpoints.length > 0) {
+                                console.log('Working endpoints:', workingEndpoints);
+                            } else {
+                                console.log('No working endpoints found. All returned errors.');
+                            }
+                        } else {
+                            showNotification('Endpoint test failed: ' + response.data, 'error');
+                            console.error('Endpoint Test Error:', response.data);
+                        }
+                        $button.html(originalHtml).prop('disabled', false);
+                    },
+                    error: function() {
+                        showNotification('Endpoint test failed due to network error', 'error');
+                        $button.html(originalHtml).prop('disabled', false);
+                    }
+                });
             });
             
             // Test Sync Button
@@ -3644,6 +3695,8 @@ spl_autoload_register(function ($class) {
         
         $this->log_sync_message('Jetpack CRM API Response Code: ' . $jetpack_http_code);
         $this->log_sync_message('Jetpack CRM API Response Body: ' . substr($jetpack_body, 0, 500) . '...');
+        $this->log_sync_message('Jetpack CRM API Endpoint: ' . rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers');
+        $this->log_sync_message('Jetpack CRM Auth Header: ' . substr($auth_header, 0, 20) . '...');
         
         if ($jetpack_http_code !== 200) {
             wp_send_json_error('Jetpack CRM API returned HTTP ' . $jetpack_http_code . ': ' . $jetpack_body);
@@ -3661,6 +3714,60 @@ spl_autoload_register(function ($class) {
             'xero_status' => 'Connected',
             'jetpack_status' => 'Connected'
         ));
+    }
+    
+    public function test_endpoints_ajax() {
+        check_ajax_referer('xero_jetpack_crm_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Insufficient permissions');
+        }
+        
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+            wp_send_json_error('Jetpack CRM not properly configured.');
+        }
+        
+        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
+        
+        // Test different endpoint formats
+        $endpoints_to_try = array(
+            'jetpackcrm/v1/customers' => rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers',
+            'zerobscrm/v1/customers' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers',
+            'jetpackcrm/v1/contacts' => rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/contacts',
+            'zerobscrm/v1/contacts' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/contacts',
+            'jetpackcrm/v1/transactions' => rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/transactions',
+            'zerobscrm/v1/transactions' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions'
+        );
+        
+        $results = array();
+        
+        foreach ($endpoints_to_try as $name => $endpoint) {
+            $response = wp_remote_get($endpoint, array(
+                'headers' => array(
+                    'Authorization' => $auth_header,
+                    'Content-Type' => 'application/json'
+                ),
+                'timeout' => 10
+            ));
+            
+            $http_code = wp_remote_retrieve_response_code($response);
+            $body = wp_remote_retrieve_body($response);
+            
+            $results[$name] = array(
+                'endpoint' => $endpoint,
+                'http_code' => $http_code,
+                'response' => substr($body, 0, 200),
+                'success' => $http_code === 200
+            );
+            
+            $this->log_sync_message('Endpoint test ' . $name . ': HTTP ' . $http_code . ' - ' . substr($body, 0, 100));
+        }
+        
+        wp_send_json_success($results);
     }
     
     private function sync_contacts_from_xero() {
