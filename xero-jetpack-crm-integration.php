@@ -3674,12 +3674,11 @@ spl_autoload_register(function ($class) {
             wp_send_json_error('Jetpack CRM not properly configured. API key, secret, or endpoint missing.');
         }
         
-        // Test Jetpack CRM API call with Basic Auth
-        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
+        // Test Jetpack CRM API call with query parameters (not Basic Auth)
+        $jetpack_url = rtrim($jetpack_endpoint, '/') . '/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret);
         
-        $jetpack_response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers', array(
+        $jetpack_response = wp_remote_get($jetpack_url, array(
             'headers' => array(
-                'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
             ),
             'timeout' => 15
@@ -3695,8 +3694,7 @@ spl_autoload_register(function ($class) {
         
         $this->log_sync_message('Jetpack CRM API Response Code: ' . $jetpack_http_code);
         $this->log_sync_message('Jetpack CRM API Response Body: ' . substr($jetpack_body, 0, 500) . '...');
-        $this->log_sync_message('Jetpack CRM API Endpoint: ' . rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers');
-        $this->log_sync_message('Jetpack CRM Auth Header: ' . substr($auth_header, 0, 20) . '...');
+        $this->log_sync_message('Jetpack CRM API URL: ' . $jetpack_url);
         
         if ($jetpack_http_code !== 200) {
             wp_send_json_error('Jetpack CRM API returned HTTP ' . $jetpack_http_code . ': ' . $jetpack_body);
@@ -3731,16 +3729,14 @@ spl_autoload_register(function ($class) {
             wp_send_json_error('Jetpack CRM not properly configured.');
         }
         
-        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
-        
-        // Test different endpoint formats
+        // Test different endpoint formats with query parameter authentication
         $endpoints_to_try = array(
-            'jetpackcrm/v1/customers' => rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers',
-            'zerobscrm/v1/customers' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers',
-            'jetpackcrm/v1/contacts' => rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/contacts',
-            'zerobscrm/v1/contacts' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/contacts',
-            'jetpackcrm/v1/transactions' => rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/transactions',
-            'zerobscrm/v1/transactions' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions'
+            'jetpackcrm/customers' => rtrim($jetpack_endpoint, '/') . '/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'zerobscrm/customers' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'jetpackcrm/contacts' => rtrim($jetpack_endpoint, '/') . '/contacts?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'zerobscrm/contacts' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/contacts?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'jetpackcrm/transactions' => rtrim($jetpack_endpoint, '/') . '/transactions?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'zerobscrm/transactions' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret)
         );
         
         $results = array();
@@ -3748,7 +3744,6 @@ spl_autoload_register(function ($class) {
         foreach ($endpoints_to_try as $name => $endpoint) {
             $response = wp_remote_get($endpoint, array(
                 'headers' => array(
-                    'Authorization' => $auth_header,
                     'Content-Type' => 'application/json'
                 ),
                 'timeout' => 10
@@ -4314,6 +4309,24 @@ spl_autoload_register(function ($class) {
         return implode(', ', $address_parts);
     }
     
+    private function build_jetpack_api_url($endpoint, $params = array()) {
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+            return false;
+        }
+        
+        $base_url = rtrim($jetpack_endpoint, '/') . '/' . ltrim($endpoint, '/');
+        $query_params = array_merge(array(
+            'api_key' => $jetpack_api_key,
+            'api_secret' => $jetpack_api_secret
+        ), $params);
+        
+        return $base_url . '?' . http_build_query($query_params);
+    }
+    
     private function find_customer_id_for_invoice($xero_invoice) {
         // Try to find customer by ContactID first
         if (isset($xero_invoice['Contact']['ContactID'])) {
@@ -4336,19 +4349,14 @@ spl_autoload_register(function ($class) {
     }
     
     private function find_jetpack_contact_by_email($email) {
-        $jetpack_api_key = get_option('jetpack_crm_api_key');
-        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
-        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        $url = $this->build_jetpack_api_url('customers');
         
-        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+        if (!$url) {
             return false;
         }
         
-        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
-        
-        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers', array(
+        $response = wp_remote_get($url, array(
             'headers' => array(
-                'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
             ),
             'timeout' => 15
@@ -4372,19 +4380,14 @@ spl_autoload_register(function ($class) {
     }
     
     private function find_jetpack_contact_by_xero_id($xero_contact_id) {
-        $jetpack_api_key = get_option('jetpack_crm_api_key');
-        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
-        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        $url = $this->build_jetpack_api_url('customers');
         
-        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+        if (!$url) {
             return false;
         }
         
-        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
-        
-        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers', array(
+        $response = wp_remote_get($url, array(
             'headers' => array(
-                'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
             ),
             'timeout' => 15
@@ -4444,19 +4447,14 @@ spl_autoload_register(function ($class) {
     }
     
     private function find_jetpack_transaction_by_invoice_number($invoice_number) {
-        $jetpack_api_key = get_option('jetpack_crm_api_key');
-        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
-        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        $url = $this->build_jetpack_api_url('transactions');
         
-        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+        if (!$url) {
             return false;
         }
         
-        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
-        
-        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/transactions', array(
+        $response = wp_remote_get($url, array(
             'headers' => array(
-                'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
             ),
             'timeout' => 15
@@ -4484,19 +4482,14 @@ spl_autoload_register(function ($class) {
     }
     
     private function find_jetpack_transaction_by_xero_payment_id($xero_payment_id) {
-        $jetpack_api_key = get_option('jetpack_crm_api_key');
-        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
-        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        $url = $this->build_jetpack_api_url('transactions');
         
-        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+        if (!$url) {
             return false;
         }
         
-        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
-        
-        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/transactions', array(
+        $response = wp_remote_get($url, array(
             'headers' => array(
-                'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
             ),
             'timeout' => 15
@@ -4520,19 +4513,14 @@ spl_autoload_register(function ($class) {
     }
     
     private function create_jetpack_contact($contact_data) {
-        $jetpack_api_key = get_option('jetpack_crm_api_key');
-        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
-        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        $url = $this->build_jetpack_api_url('customers');
         
-        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+        if (!$url) {
             return false;
         }
         
-        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
-        
-        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers', array(
+        $response = wp_remote_post($url, array(
             'headers' => array(
-                'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
             ),
             'body' => json_encode($contact_data),
@@ -4556,19 +4544,14 @@ spl_autoload_register(function ($class) {
     }
     
     private function update_jetpack_contact($contact_id, $contact_data) {
-        $jetpack_api_key = get_option('jetpack_crm_api_key');
-        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
-        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        $url = $this->build_jetpack_api_url('customers/' . $contact_id);
         
-        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+        if (!$url) {
             return false;
         }
         
-        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
-        
-        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers/' . $contact_id, array(
+        $response = wp_remote_post($url, array(
             'headers' => array(
-                'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
             ),
             'body' => json_encode($contact_data),
@@ -4592,19 +4575,14 @@ spl_autoload_register(function ($class) {
     }
     
     private function create_jetpack_transaction($transaction_data) {
-        $jetpack_api_key = get_option('jetpack_crm_api_key');
-        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
-        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        $url = $this->build_jetpack_api_url('transactions');
         
-        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+        if (!$url) {
             return false;
         }
         
-        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
-        
-        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/transactions', array(
+        $response = wp_remote_post($url, array(
             'headers' => array(
-                'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
             ),
             'body' => json_encode($transaction_data),
@@ -4628,19 +4606,14 @@ spl_autoload_register(function ($class) {
     }
     
     private function update_jetpack_transaction($transaction_id, $transaction_data) {
-        $jetpack_api_key = get_option('jetpack_crm_api_key');
-        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
-        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        $url = $this->build_jetpack_api_url('transactions/' . $transaction_id);
         
-        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+        if (!$url) {
             return false;
         }
         
-        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
-        
-        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/transactions/' . $transaction_id, array(
+        $response = wp_remote_post($url, array(
             'headers' => array(
-                'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
             ),
             'body' => json_encode($transaction_data),
