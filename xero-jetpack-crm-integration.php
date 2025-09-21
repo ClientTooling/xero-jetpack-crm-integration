@@ -3738,7 +3738,9 @@ spl_autoload_register(function ($class) {
             'jetpackcrm/contacts' => rtrim($jetpack_endpoint, '/') . '/contacts?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
             'zerobscrm/contacts' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/contacts?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
             'jetpackcrm/transactions' => rtrim($jetpack_endpoint, '/') . '/transactions?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
-            'zerobscrm/transactions' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret)
+            'zerobscrm/transactions' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'zbs_api/customers' => rtrim($jetpack_endpoint, '/') . '/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'zbs_api/contacts' => rtrim($jetpack_endpoint, '/') . '/contacts?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret)
         );
         
         $results = array();
@@ -4320,7 +4322,14 @@ spl_autoload_register(function ($class) {
             return false;
         }
         
-        $base_url = rtrim($jetpack_endpoint, '/') . '/' . ltrim($endpoint, '/');
+        // Check if endpoint already includes the API path
+        if (strpos($jetpack_endpoint, '/wp-json/') !== false) {
+            // Endpoint already includes the API path
+            $base_url = rtrim($jetpack_endpoint, '/') . '/' . ltrim($endpoint, '/');
+        } else {
+            // Add the standard Jetpack CRM API path
+            $base_url = rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/' . ltrim($endpoint, '/');
+        }
         $query_params = array_merge(array(
             'api_key' => $jetpack_api_key,
             'api_secret' => $jetpack_api_secret
@@ -4524,13 +4533,15 @@ spl_autoload_register(function ($class) {
         
         $this->log_sync_message('Creating Jetpack contact with URL: ' . $url);
         $this->log_sync_message('Contact data: ' . json_encode($contact_data));
+        $this->log_sync_message('Jetpack endpoint base: ' . get_option('jetpack_crm_endpoint'));
         
         $response = wp_remote_post($url, array(
             'headers' => array(
                 'Content-Type' => 'application/json'
             ),
             'body' => json_encode($contact_data),
-            'timeout' => 15
+            'timeout' => 15,
+            'method' => 'POST'
         ));
         
         if (is_wp_error($response)) {
