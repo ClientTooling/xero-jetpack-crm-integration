@@ -3533,20 +3533,20 @@ spl_autoload_register(function ($class) {
         $this->log_sync_message('Starting background sync process...');
         
         // Update progress
-        $this->update_sync_progress('fetching_contacts', 'Fetching contacts from Xero...', 10);
+        $this->update_sync_progress('fetching_contacts', 'Importing from Xero: Fetching contacts...', 10);
         
         try {
             // Sync contacts
             $contacts_result = $this->sync_contacts_from_xero_with_progress();
             
             // Update progress
-            $this->update_sync_progress('fetching_invoices', 'Fetching invoices from Xero...', 50);
+            $this->update_sync_progress('fetching_invoices', 'Importing from Xero: Fetching invoices...', 50);
             
             // Sync invoices
             $invoices_result = $this->sync_invoices_from_xero_with_progress();
             
             // Update progress
-            $this->update_sync_progress('fetching_payments', 'Fetching payments from Xero...', 80);
+            $this->update_sync_progress('fetching_payments', 'Importing from Xero: Fetching payments...', 80);
             
             // Sync payments
             $payments_result = $this->sync_payments_from_xero_with_progress();
@@ -3676,6 +3676,8 @@ spl_autoload_register(function ($class) {
         
         // Test Jetpack CRM API call with query parameters (not Basic Auth)
         $jetpack_url = rtrim($jetpack_endpoint, '/') . '/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret);
+        
+        $this->log_sync_message('Testing Jetpack CRM URL: ' . $jetpack_url);
         
         $jetpack_response = wp_remote_get($jetpack_url, array(
             'headers' => array(
@@ -3871,7 +3873,7 @@ spl_autoload_register(function ($class) {
         $this->log_sync_message('Found ' . $total_contacts . ' contacts in Xero');
         
         // Update progress with total count
-        $this->update_sync_progress('syncing_contacts', 'Syncing contacts...', 20, array(
+        $this->update_sync_progress('syncing_contacts', 'Uploading to Jetpack CRM: Syncing contacts...', 20, array(
             'total_contacts' => $total_contacts,
             'synced_contacts' => 0
         ));
@@ -3879,7 +3881,7 @@ spl_autoload_register(function ($class) {
         // Process each contact
         foreach ($data['Contacts'] as $index => $xero_contact) {
             try {
-                $this->update_sync_progress('syncing_contacts', 'Syncing contacts...', 20 + (($index / $total_contacts) * 30), array(
+                $this->update_sync_progress('syncing_contacts', 'Uploading to Jetpack CRM: Syncing contacts...', 20 + (($index / $total_contacts) * 30), array(
                     'current_contact' => $xero_contact['Name'],
                     'synced_contacts' => $synced,
                     'total_contacts' => $total_contacts
@@ -3948,7 +3950,7 @@ spl_autoload_register(function ($class) {
         $this->log_sync_message('Found ' . $total_invoices . ' invoices in Xero');
         
         // Update progress with total count
-        $this->update_sync_progress('syncing_invoices', 'Syncing invoices...', 50, array(
+        $this->update_sync_progress('syncing_invoices', 'Uploading to Jetpack CRM: Syncing invoices...', 50, array(
             'total_invoices' => $total_invoices,
             'synced_invoices' => 0
         ));
@@ -3956,7 +3958,7 @@ spl_autoload_register(function ($class) {
         // Process each invoice
         foreach ($data['Invoices'] as $index => $xero_invoice) {
             try {
-                $this->update_sync_progress('syncing_invoices', 'Syncing invoices...', 50 + (($index / $total_invoices) * 40), array(
+                $this->update_sync_progress('syncing_invoices', 'Uploading to Jetpack CRM: Syncing invoices...', 50 + (($index / $total_invoices) * 40), array(
                     'current_invoice' => $xero_invoice['InvoiceNumber'],
                     'synced_invoices' => $synced,
                     'total_invoices' => $total_invoices
@@ -4025,7 +4027,7 @@ spl_autoload_register(function ($class) {
         $this->log_sync_message('Found ' . $total_payments . ' payments in Xero');
         
         // Update progress with total count
-        $this->update_sync_progress('syncing_payments', 'Syncing payments...', 80, array(
+        $this->update_sync_progress('syncing_payments', 'Uploading to Jetpack CRM: Syncing payments...', 80, array(
             'total_payments' => $total_payments,
             'synced_payments' => 0
         ));
@@ -4033,7 +4035,7 @@ spl_autoload_register(function ($class) {
         // Process each payment
         foreach ($data['Payments'] as $index => $xero_payment) {
             try {
-                $this->update_sync_progress('syncing_payments', 'Syncing payments...', 80 + (($index / $total_payments) * 20), array(
+                $this->update_sync_progress('syncing_payments', 'Uploading to Jetpack CRM: Syncing payments...', 80 + (($index / $total_payments) * 20), array(
                     'current_payment' => 'Payment ' . $xero_payment['PaymentID'],
                     'synced_payments' => $synced,
                     'total_payments' => $total_payments
@@ -4516,8 +4518,12 @@ spl_autoload_register(function ($class) {
         $url = $this->build_jetpack_api_url('customers');
         
         if (!$url) {
+            $this->log_sync_message('Failed to build Jetpack CRM URL - missing credentials');
             return false;
         }
+        
+        $this->log_sync_message('Creating Jetpack contact with URL: ' . $url);
+        $this->log_sync_message('Contact data: ' . json_encode($contact_data));
         
         $response = wp_remote_post($url, array(
             'headers' => array(
@@ -4533,11 +4539,14 @@ spl_autoload_register(function ($class) {
         }
         
         $http_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        $this->log_sync_message('Jetpack CRM create contact response - HTTP ' . $http_code . ': ' . substr($body, 0, 500));
+        
         if ($http_code >= 200 && $http_code < 300) {
             $this->log_sync_message('Created Jetpack contact: ' . $contact_data['fname'] . ' ' . $contact_data['lname']);
             return true;
         } else {
-            $body = wp_remote_retrieve_body($response);
             $this->log_sync_message('Failed to create Jetpack contact (HTTP ' . $http_code . '): ' . $body);
             return false;
         }
