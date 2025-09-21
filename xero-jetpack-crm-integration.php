@@ -4534,6 +4534,8 @@ spl_autoload_register(function ($class) {
         $this->log_sync_message('Creating Jetpack contact with URL: ' . $url);
         $this->log_sync_message('Contact data: ' . json_encode($contact_data));
         $this->log_sync_message('Jetpack endpoint base: ' . get_option('jetpack_crm_endpoint'));
+        $this->log_sync_message('API Key: ' . substr(get_option('jetpack_crm_api_key'), 0, 8) . '...');
+        $this->log_sync_message('API Secret: ' . substr(get_option('jetpack_crm_api_secret'), 0, 8) . '...');
         
         $response = wp_remote_post($url, array(
             'headers' => array(
@@ -4553,6 +4555,7 @@ spl_autoload_register(function ($class) {
         $body = wp_remote_retrieve_body($response);
         
         $this->log_sync_message('Jetpack CRM create contact response - HTTP ' . $http_code . ': ' . substr($body, 0, 500));
+        $this->log_sync_message('Full response body: ' . $body);
         
         if ($http_code >= 200 && $http_code < 300) {
             $this->log_sync_message('Created Jetpack contact: ' . $contact_data['fname'] . ' ' . $contact_data['lname']);
@@ -4570,7 +4573,8 @@ spl_autoload_register(function ($class) {
             return false;
         }
         
-        $response = wp_remote_post($url, array(
+        $response = wp_remote_request($url, array(
+            'method' => 'PUT',
             'headers' => array(
                 'Content-Type' => 'application/json'
             ),
@@ -4632,7 +4636,8 @@ spl_autoload_register(function ($class) {
             return false;
         }
         
-        $response = wp_remote_post($url, array(
+        $response = wp_remote_request($url, array(
+            'method' => 'PUT',
             'headers' => array(
                 'Content-Type' => 'application/json'
             ),
