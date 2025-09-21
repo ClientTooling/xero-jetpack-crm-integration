@@ -3494,12 +3494,20 @@ spl_autoload_register(function ($class) {
             // Sync invoices
             $invoices_result = $this->sync_invoices_from_xero_with_progress();
             
+            // Update progress
+            $this->update_sync_progress('fetching_payments', 'Fetching payments from Xero...', 80);
+            
+            // Sync payments
+            $payments_result = $this->sync_payments_from_xero_with_progress();
+            
             // Update sync statistics
             $total_contacts = get_option('xero_synced_contacts_count', 0) + $contacts_result['synced'];
             $total_invoices = get_option('xero_synced_invoices_count', 0) + $invoices_result['synced'];
+            $total_payments = get_option('xero_synced_payments_count', 0) + $payments_result['synced'];
             
             update_option('xero_synced_contacts_count', $total_contacts);
             update_option('xero_synced_invoices_count', $total_invoices);
+            update_option('xero_synced_payments_count', $total_payments);
             update_option('xero_last_sync', time());
             
             // Mark as completed
@@ -3867,23 +3875,159 @@ spl_autoload_register(function ($class) {
         return array('synced' => $synced, 'errors' => $errors);
     }
     
+    private function sync_payments_from_xero_with_progress() {
+        $access_token = $this->decrypt_token(get_option('xero_access_token'));
+        $tenant_id = get_option('xero_tenant_id');
+        
+        if (empty($access_token) || empty($tenant_id)) {
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $synced = 0;
+        $errors = 0;
+        
+        // Fetch payments from Xero (last 12 months)
+        $from_date = date('Y-m-d', strtotime('-12 months'));
+        $to_date = date('Y-m-d');
+        
+        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Payments?where=Date>=' . $from_date . '&where=Date<=' . $to_date, array(
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $access_token,
+                'Xero-tenant-id' => $tenant_id,
+                'Accept' => 'application/json'
+            ),
+            'timeout' => 30
+        ));
+        
+        if (is_wp_error($response)) {
+            $this->log_sync_message('Failed to fetch payments from Xero: ' . $response->get_error_message());
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code !== 200) {
+            $body = wp_remote_retrieve_body($response);
+            $this->log_sync_message('Xero API error (HTTP ' . $http_code . '): ' . $body);
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (!isset($data['Payments']) || !is_array($data['Payments'])) {
+            $this->log_sync_message('Invalid response format from Xero API');
+            return array('synced' => 0, 'errors' => 1);
+        }
+        
+        $total_payments = count($data['Payments']);
+        $this->log_sync_message('Found ' . $total_payments . ' payments in Xero');
+        
+        // Update progress with total count
+        $this->update_sync_progress('syncing_payments', 'Syncing payments...', 80, array(
+            'total_payments' => $total_payments,
+            'synced_payments' => 0
+        ));
+        
+        // Process each payment
+        foreach ($data['Payments'] as $index => $xero_payment) {
+            try {
+                $this->update_sync_progress('syncing_payments', 'Syncing payments...', 80 + (($index / $total_payments) * 20), array(
+                    'current_payment' => 'Payment ' . $xero_payment['PaymentID'],
+                    'synced_payments' => $synced,
+                    'total_payments' => $total_payments
+                ));
+                
+                $result = $this->sync_single_payment($xero_payment);
+                if ($result) {
+                    $synced++;
+                } else {
+                    $errors++;
+                }
+            } catch (Exception $e) {
+                $this->log_sync_message('Error syncing payment ' . $xero_payment['PaymentID'] . ': ' . $e->getMessage());
+                $errors++;
+            }
+        }
+        
+        return array('synced' => $synced, 'errors' => $errors);
+    }
+    
+    private function sync_single_payment($xero_payment) {
+        // Check if payment already exists in Jetpack CRM
+        $existing_transaction = $this->find_jetpack_transaction_by_xero_payment_id($xero_payment['PaymentID']);
+        
+        // Get payment description from Reference or Details
+        $description = '';
+        if (isset($xero_payment['Reference']) && !empty($xero_payment['Reference'])) {
+            $description = $xero_payment['Reference'];
+        } elseif (isset($xero_payment['Details']) && !empty($xero_payment['Details'])) {
+            $description = $xero_payment['Details'];
+        }
+        
+        // Map Xero Payment to Jetpack CRM Transaction according to spec
+        $transaction_data = array(
+            // Required fields: Payment ID, Date, Amount, Linked Invoice, Description
+            'reference' => $xero_payment['PaymentID'], // Payment ID as reference
+            'date' => isset($xero_payment['Date']) ? date('Y-m-d', strtotime($xero_payment['Date'])) : date('Y-m-d'),
+            'amount' => isset($xero_payment['Amount']) ? $xero_payment['Amount'] : 0,
+            'description' => $description, // From Reference/Details as per spec
+            'status' => 'paid', // Payments are always paid
+            
+            // Additional fields for better data structure
+            'title' => 'Payment ' . $xero_payment['PaymentID'],
+            'type' => 'payment',
+            'value' => isset($xero_payment['Amount']) ? $xero_payment['Amount'] : 0,
+            'currency' => isset($xero_payment['CurrencyCode']) ? $xero_payment['CurrencyCode'] : 'USD',
+            
+            // Link to invoice if available
+            'linked_invoice' => isset($xero_payment['Invoice']) ? $xero_payment['Invoice']['InvoiceNumber'] : '',
+            
+            // Custom fields for de-duplication
+            'xero_payment_id' => $xero_payment['PaymentID']
+        );
+        
+        if ($existing_transaction) {
+            // Update existing transaction
+            return $this->update_jetpack_transaction($existing_transaction['id'], $transaction_data);
+        } else {
+            // Create new transaction
+            return $this->create_jetpack_transaction($transaction_data);
+        }
+    }
+    
     private function sync_single_contact($xero_contact) {
         // Check if contact already exists in Jetpack CRM
+        // Match on ContactID first, then email as per spec
         $existing_contact = $this->find_jetpack_contact_by_xero_id($xero_contact['ContactID']);
         
+        // If not found by ContactID, try by email
+        if (!$existing_contact && isset($xero_contact['EmailAddress']) && !empty($xero_contact['EmailAddress'])) {
+            $existing_contact = $this->find_jetpack_contact_by_email($xero_contact['EmailAddress']);
+        }
+        
+        // Map Xero Contact to Jetpack CRM Customer according to spec
         $contact_data = array(
+            // Required fields: Name, Email, Phone, Company, Address
+            'name' => $xero_contact['Name'], // Full name as required
+            'email' => isset($xero_contact['EmailAddress']) ? $xero_contact['EmailAddress'] : '',
+            'phone' => isset($xero_contact['Phones']) && !empty($xero_contact['Phones']) ? $xero_contact['Phones'][0]['PhoneNumber'] : '',
+            'company' => isset($xero_contact['Name']) ? $xero_contact['Name'] : '', // Use name as company for business contacts
+            
+            // Address fields - combine into full address
+            'address' => $this->build_full_address($xero_contact),
+            
+            // Custom field for de-duplication as per spec
+            'xero_contact_id' => $xero_contact['ContactID'],
+            
+            // Additional fields for better data structure
             'fname' => $this->extract_first_name($xero_contact['Name']),
             'lname' => $this->extract_last_name($xero_contact['Name']),
-            'email' => isset($xero_contact['EmailAddress']) ? $xero_contact['EmailAddress'] : '',
-            'tel' => isset($xero_contact['Phones']) && !empty($xero_contact['Phones']) ? $xero_contact['Phones'][0]['PhoneNumber'] : '',
-            'company' => isset($xero_contact['Name']) ? $xero_contact['Name'] : '',
             'addr1' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['AddressLine1'] : '',
             'addr2' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['AddressLine2'] : '',
             'city' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['City'] : '',
             'county' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['Region'] : '',
             'postcode' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['PostalCode'] : '',
-            'country' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['Country'] : '',
-            'xero_contact_id' => $xero_contact['ContactID'] // Custom field for de-duplication
+            'country' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['Country'] : ''
         );
         
         if ($existing_contact) {
@@ -3961,7 +4105,13 @@ spl_autoload_register(function ($class) {
     
     private function sync_single_invoice($xero_invoice) {
         // Check if transaction already exists in Jetpack CRM
-        $existing_transaction = $this->find_jetpack_transaction_by_xero_id($xero_invoice['InvoiceID']);
+        // Match on InvoiceNumber as per spec
+        $existing_transaction = $this->find_jetpack_transaction_by_invoice_number($xero_invoice['InvoiceNumber']);
+        
+        // If not found by InvoiceNumber, try by Xero InvoiceID as fallback
+        if (!$existing_transaction) {
+            $existing_transaction = $this->find_jetpack_transaction_by_xero_id($xero_invoice['InvoiceID']);
+        }
         
         // Get line item descriptions
         $description = '';
@@ -3975,15 +4125,27 @@ spl_autoload_register(function ($class) {
             $description = implode(', ', $descriptions);
         }
         
+        // Find customer ID for this invoice
+        $customer_id = $this->find_customer_id_for_invoice($xero_invoice);
+        
+        // Map Xero Invoice to Jetpack CRM Transaction according to spec
         $transaction_data = array(
+            // Required fields per spec: customer ID, reference, amount, date, status, description
+            'customer_id' => $customer_id, // Customer ID as required by spec
+            'reference' => $xero_invoice['InvoiceNumber'], // Invoice Number as reference
+            'amount' => isset($xero_invoice['Total']) ? $xero_invoice['Total'] : 0,
+            'date' => isset($xero_invoice['Date']) ? date('Y-m-d', strtotime($xero_invoice['Date'])) : date('Y-m-d'),
+            'status' => isset($xero_invoice['Status']) ? strtolower($xero_invoice['Status']) : 'draft',
+            'description' => $description, // From LineItems.Description as per spec
+            
+            // Additional fields for better data structure
             'title' => 'Invoice ' . $xero_invoice['InvoiceNumber'],
             'type' => 'invoice',
             'value' => isset($xero_invoice['Total']) ? $xero_invoice['Total'] : 0,
             'currency' => isset($xero_invoice['CurrencyCode']) ? $xero_invoice['CurrencyCode'] : 'USD',
-            'date' => isset($xero_invoice['Date']) ? date('Y-m-d', strtotime($xero_invoice['Date'])) : date('Y-m-d'),
             'due_date' => isset($xero_invoice['DueDate']) ? date('Y-m-d', strtotime($xero_invoice['DueDate'])) : null,
-            'status' => isset($xero_invoice['Status']) ? strtolower($xero_invoice['Status']) : 'draft',
-            'description' => $description,
+            
+            // Custom fields for de-duplication
             'xero_invoice_id' => $xero_invoice['InvoiceID'],
             'xero_invoice_number' => $xero_invoice['InvoiceNumber']
         );
@@ -4015,6 +4177,93 @@ spl_autoload_register(function ($class) {
         return '';
     }
     
+    private function build_full_address($xero_contact) {
+        if (!isset($xero_contact['Addresses']) || empty($xero_contact['Addresses'])) {
+            return '';
+        }
+        
+        $address = $xero_contact['Addresses'][0];
+        $address_parts = array();
+        
+        if (!empty($address['AddressLine1'])) {
+            $address_parts[] = $address['AddressLine1'];
+        }
+        if (!empty($address['AddressLine2'])) {
+            $address_parts[] = $address['AddressLine2'];
+        }
+        if (!empty($address['City'])) {
+            $address_parts[] = $address['City'];
+        }
+        if (!empty($address['Region'])) {
+            $address_parts[] = $address['Region'];
+        }
+        if (!empty($address['PostalCode'])) {
+            $address_parts[] = $address['PostalCode'];
+        }
+        if (!empty($address['Country'])) {
+            $address_parts[] = $address['Country'];
+        }
+        
+        return implode(', ', $address_parts);
+    }
+    
+    private function find_customer_id_for_invoice($xero_invoice) {
+        // Try to find customer by ContactID first
+        if (isset($xero_invoice['Contact']['ContactID'])) {
+            $existing_contact = $this->find_jetpack_contact_by_xero_id($xero_invoice['Contact']['ContactID']);
+            if ($existing_contact && isset($existing_contact['id'])) {
+                return $existing_contact['id'];
+            }
+        }
+        
+        // If no ContactID, try to find by email
+        if (isset($xero_invoice['Contact']['EmailAddress'])) {
+            $existing_contact = $this->find_jetpack_contact_by_email($xero_invoice['Contact']['EmailAddress']);
+            if ($existing_contact && isset($existing_contact['id'])) {
+                return $existing_contact['id'];
+            }
+        }
+        
+        // If no existing customer found, return null (will be handled by Jetpack CRM)
+        return null;
+    }
+    
+    private function find_jetpack_contact_by_email($email) {
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+            return false;
+        }
+        
+        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
+        
+        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers', array(
+            'headers' => array(
+                'Authorization' => $auth_header,
+                'Content-Type' => 'application/json'
+            ),
+            'timeout' => 15
+        ));
+        
+        if (is_wp_error($response)) {
+            return false;
+        }
+        
+        $customers = json_decode(wp_remote_retrieve_body($response), true);
+        
+        if (is_array($customers)) {
+            foreach ($customers as $customer) {
+                if (isset($customer['email']) && $customer['email'] === $email) {
+                    return $customer;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
     private function find_jetpack_contact_by_xero_id($xero_contact_id) {
         $jetpack_api_key = get_option('jetpack_crm_api_key');
         $jetpack_api_secret = get_option('jetpack_crm_api_secret');
@@ -4026,7 +4275,7 @@ spl_autoload_register(function ($class) {
         
         $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
         
-        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers', array(
+        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers', array(
             'headers' => array(
                 'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
@@ -4062,7 +4311,7 @@ spl_autoload_register(function ($class) {
         
         $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
         
-        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions', array(
+        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/transactions', array(
             'headers' => array(
                 'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
@@ -4087,6 +4336,82 @@ spl_autoload_register(function ($class) {
         return false;
     }
     
+    private function find_jetpack_transaction_by_invoice_number($invoice_number) {
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+            return false;
+        }
+        
+        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
+        
+        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/transactions', array(
+            'headers' => array(
+                'Authorization' => $auth_header,
+                'Content-Type' => 'application/json'
+            ),
+            'timeout' => 15
+        ));
+        
+        if (is_wp_error($response)) {
+            return false;
+        }
+        
+        $transactions = json_decode(wp_remote_retrieve_body($response), true);
+        
+        if (is_array($transactions)) {
+            foreach ($transactions as $transaction) {
+                if (isset($transaction['reference']) && $transaction['reference'] === $invoice_number) {
+                    return $transaction;
+                }
+                // Also check xero_invoice_number field
+                if (isset($transaction['xero_invoice_number']) && $transaction['xero_invoice_number'] === $invoice_number) {
+                    return $transaction;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
+    private function find_jetpack_transaction_by_xero_payment_id($xero_payment_id) {
+        $jetpack_api_key = get_option('jetpack_crm_api_key');
+        $jetpack_api_secret = get_option('jetpack_crm_api_secret');
+        $jetpack_endpoint = get_option('jetpack_crm_endpoint');
+        
+        if (empty($jetpack_api_key) || empty($jetpack_api_secret) || empty($jetpack_endpoint)) {
+            return false;
+        }
+        
+        $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
+        
+        $response = wp_remote_get(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/transactions', array(
+            'headers' => array(
+                'Authorization' => $auth_header,
+                'Content-Type' => 'application/json'
+            ),
+            'timeout' => 15
+        ));
+        
+        if (is_wp_error($response)) {
+            return false;
+        }
+        
+        $transactions = json_decode(wp_remote_retrieve_body($response), true);
+        
+        if (is_array($transactions)) {
+            foreach ($transactions as $transaction) {
+                if (isset($transaction['xero_payment_id']) && $transaction['xero_payment_id'] === $xero_payment_id) {
+                    return $transaction;
+                }
+            }
+        }
+        
+        return false;
+    }
+    
     private function create_jetpack_contact($contact_data) {
         $jetpack_api_key = get_option('jetpack_crm_api_key');
         $jetpack_api_secret = get_option('jetpack_crm_api_secret');
@@ -4098,7 +4423,7 @@ spl_autoload_register(function ($class) {
         
         $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
         
-        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers', array(
+        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers', array(
             'headers' => array(
                 'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
@@ -4134,7 +4459,7 @@ spl_autoload_register(function ($class) {
         
         $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
         
-        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers/' . $contact_id, array(
+        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers/' . $contact_id, array(
             'headers' => array(
                 'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
@@ -4170,7 +4495,7 @@ spl_autoload_register(function ($class) {
         
         $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
         
-        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions', array(
+        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/transactions', array(
             'headers' => array(
                 'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
@@ -4206,7 +4531,7 @@ spl_autoload_register(function ($class) {
         
         $auth_header = 'Basic ' . base64_encode($jetpack_api_key . ':' . $jetpack_api_secret);
         
-        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions/' . $transaction_id, array(
+        $response = wp_remote_post(rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/transactions/' . $transaction_id, array(
             'headers' => array(
                 'Authorization' => $auth_header,
                 'Content-Type' => 'application/json'
