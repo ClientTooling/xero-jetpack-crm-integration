@@ -3922,7 +3922,7 @@ spl_autoload_register(function ($class) {
         $from_date = date('Y-m-d', strtotime('-12 months'));
         $to_date = date('Y-m-d');
         
-        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Invoices', array(
+        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Invoices?where=Date%20%3E=%20DateTime(' . date('Y,m,d', strtotime('-12 months')) . ')', array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $access_token,
                 'Xero-tenant-id' => $tenant_id,
@@ -3967,6 +3967,7 @@ spl_autoload_register(function ($class) {
         foreach ($data['Invoices'] as $index => $xero_invoice) {
             try {
                 $this->log_sync_message('Processing invoice: ' . $xero_invoice['InvoiceNumber'] . ' - Amount: ' . (isset($xero_invoice['Total']) ? $xero_invoice['Total'] : 'N/A'));
+                $this->log_sync_message('Invoice data structure: ' . print_r(array_keys($xero_invoice), true));
                 
                 $this->update_sync_progress('syncing_invoices', 'Uploading to Jetpack CRM: Syncing invoices...', 50 + (($index / $total_invoices) * 40), array(
                     'current_invoice' => $xero_invoice['InvoiceNumber'],
@@ -4006,7 +4007,7 @@ spl_autoload_register(function ($class) {
         $from_date = date('Y-m-d', strtotime('-12 months'));
         $to_date = date('Y-m-d');
         
-        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Payments', array(
+        $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Payments?where=Date%20%3E=%20DateTime(' . date('Y,m,d', strtotime('-12 months')) . ')', array(
             'headers' => array(
                 'Authorization' => 'Bearer ' . $access_token,
                 'Xero-tenant-id' => $tenant_id,
@@ -4051,6 +4052,7 @@ spl_autoload_register(function ($class) {
         foreach ($data['Payments'] as $index => $xero_payment) {
             try {
                 $this->log_sync_message('Processing payment: ' . $xero_payment['PaymentID'] . ' - Amount: ' . (isset($xero_payment['Amount']) ? $xero_payment['Amount'] : 'N/A'));
+                $this->log_sync_message('Payment data structure: ' . print_r(array_keys($xero_payment), true));
                 
                 $this->update_sync_progress('syncing_payments', 'Uploading to Jetpack CRM: Syncing payments...', 80 + (($index / $total_payments) * 20), array(
                     'current_payment' => 'Payment ' . $xero_payment['PaymentID'],
@@ -4650,8 +4652,12 @@ spl_autoload_register(function ($class) {
         $url = $this->build_jetpack_api_url('create_transaction');
         
         if (!$url) {
+            $this->log_sync_message('Failed to build Jetpack CRM URL - missing credentials');
             return false;
         }
+        
+        $this->log_sync_message('Creating Jetpack transaction with URL: ' . $url);
+        $this->log_sync_message('Transaction data: ' . json_encode($transaction_data));
         
         $response = wp_remote_post($url, array(
             'headers' => array(
@@ -4667,11 +4673,15 @@ spl_autoload_register(function ($class) {
         }
         
         $http_code = wp_remote_retrieve_response_code($response);
+        $body = wp_remote_retrieve_body($response);
+        
+        $this->log_sync_message('Jetpack CRM create transaction response - HTTP ' . $http_code . ': ' . substr($body, 0, 500));
+        $this->log_sync_message('Full response body: ' . $body);
+        
         if ($http_code >= 200 && $http_code < 300) {
-            $this->log_sync_message('Created Jetpack transaction: ' . $transaction_data['title']);
+            $this->log_sync_message('Created Jetpack transaction: ' . $transaction_data['orderid']);
             return true;
         } else {
-            $body = wp_remote_retrieve_body($response);
             $this->log_sync_message('Failed to create Jetpack transaction (HTTP ' . $http_code . '): ' . $body);
             return false;
         }
