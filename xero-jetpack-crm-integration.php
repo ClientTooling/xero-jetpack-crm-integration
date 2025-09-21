@@ -3674,15 +3674,16 @@ spl_autoload_register(function ($class) {
             wp_send_json_error('Jetpack CRM not properly configured. API key, secret, or endpoint missing.');
         }
         
-        // Test Jetpack CRM API call with query parameters (not Basic Auth)
+        // Test Jetpack CRM API call with new Beta v2.0 API format
         $jetpack_url = rtrim($jetpack_endpoint, '/') . '/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret);
         
         $this->log_sync_message('Testing Jetpack CRM URL: ' . $jetpack_url);
         
-        $jetpack_response = wp_remote_get($jetpack_url, array(
+        $jetpack_response = wp_remote_post($jetpack_url, array(
             'headers' => array(
                 'Content-Type' => 'application/json'
             ),
+            'body' => json_encode(array('perpage' => 1)),
             'timeout' => 15
         ));
         
@@ -3703,7 +3704,7 @@ spl_autoload_register(function ($class) {
         }
         
         $jetpack_data = json_decode($jetpack_body, true);
-        $jetpack_contact_count = is_array($jetpack_data) ? count($jetpack_data) : 0;
+        $jetpack_contact_count = isset($jetpack_data['filterTot']) ? $jetpack_data['filterTot'] : (is_array($jetpack_data) ? count($jetpack_data) : 0);
         
         $this->log_sync_message('Found ' . $jetpack_contact_count . ' existing contacts in Jetpack CRM');
         $this->log_sync_message('=== TEST SYNC COMPLETED ===');
@@ -3733,14 +3734,12 @@ spl_autoload_register(function ($class) {
         
         // Test different endpoint formats with query parameter authentication
         $endpoints_to_try = array(
-            'jetpackcrm/customers' => rtrim($jetpack_endpoint, '/') . '/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
-            'zerobscrm/customers' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
-            'jetpackcrm/contacts' => rtrim($jetpack_endpoint, '/') . '/contacts?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
-            'zerobscrm/contacts' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/contacts?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
-            'jetpackcrm/transactions' => rtrim($jetpack_endpoint, '/') . '/transactions?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
-            'zerobscrm/transactions' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/transactions?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
-            'zbs_api/customers' => rtrim($jetpack_endpoint, '/') . '/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
-            'zbs_api/contacts' => rtrim($jetpack_endpoint, '/') . '/contacts?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret)
+            'create_customer' => rtrim($jetpack_endpoint, '/') . '/create_customer?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'customers' => rtrim($jetpack_endpoint, '/') . '/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'create_transaction' => rtrim($jetpack_endpoint, '/') . '/create_transaction?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'transactions' => rtrim($jetpack_endpoint, '/') . '/transactions?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'old_jetpackcrm/customers' => rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret),
+            'old_zerobscrm/customers' => rtrim($jetpack_endpoint, '/') . '/wp-json/zerobscrm/v1/customers?api_key=' . urlencode($jetpack_api_key) . '&api_secret=' . urlencode($jetpack_api_secret)
         );
         
         $results = array();
@@ -4070,26 +4069,21 @@ spl_autoload_register(function ($class) {
             $description = $xero_payment['Details'];
         }
         
-        // Map Xero Payment to Jetpack CRM Transaction according to spec
+        // Map Xero Payment to Jetpack CRM Transaction according to new Beta v2.0 API spec
         $transaction_data = array(
-            // Required fields: Payment ID, Date, Amount, Linked Invoice, Description
-            'reference' => $xero_payment['PaymentID'], // Payment ID as reference
-            'date' => isset($xero_payment['Date']) ? date('Y-m-d', strtotime($xero_payment['Date'])) : date('Y-m-d'),
-            'amount' => isset($xero_payment['Amount']) ? $xero_payment['Amount'] : 0,
-            'description' => $description, // From Reference/Details as per spec
-            'status' => 'paid', // Payments are always paid
+            // Required fields for new API
+            'email' => $this->get_customer_email_for_payment($xero_payment), // Links/creates customer
+            'orderid' => $xero_payment['PaymentID'], // Payment ID as unique identifier
+            'status' => 'Completed', // Payments are always completed
+            'total' => isset($xero_payment['Amount']) ? $xero_payment['Amount'] : 0,
             
-            // Additional fields for better data structure
-            'title' => 'Payment ' . $xero_payment['PaymentID'],
-            'type' => 'payment',
-            'value' => isset($xero_payment['Amount']) ? $xero_payment['Amount'] : 0,
+            // Optional fields
+            'item_title' => $description, // From Reference/Details
+            'date' => isset($xero_payment['Date']) ? date('Y-m-d', strtotime($xero_payment['Date'])) : date('Y-m-d'),
             'currency' => isset($xero_payment['CurrencyCode']) ? $xero_payment['CurrencyCode'] : 'USD',
             
-            // Link to invoice if available
-            'linked_invoice' => isset($xero_payment['Invoice']) ? $xero_payment['Invoice']['InvoiceNumber'] : '',
-            
             // Custom fields for de-duplication
-            'xero_payment_id' => $xero_payment['PaymentID']
+            'xero-payment-id' => $xero_payment['PaymentID']
         );
         
         if ($existing_transaction) {
@@ -4111,29 +4105,29 @@ spl_autoload_register(function ($class) {
             $existing_contact = $this->find_jetpack_contact_by_email($xero_contact['EmailAddress']);
         }
         
-        // Map Xero Contact to Jetpack CRM Customer according to spec
+        // Map Xero Contact to Jetpack CRM Customer according to new Beta v2.0 API spec
         $contact_data = array(
-            // Required fields: Name, Email, Phone, Company, Address
-            'name' => $xero_contact['Name'], // Full name as required
+            // Required field for matching/updating
             'email' => isset($xero_contact['EmailAddress']) ? $xero_contact['EmailAddress'] : '',
-            'phone' => isset($xero_contact['Phones']) && !empty($xero_contact['Phones']) ? $xero_contact['Phones'][0]['PhoneNumber'] : '',
-            'company' => isset($xero_contact['Name']) ? $xero_contact['Name'] : '', // Use name as company for business contacts
             
-            // Address fields - combine into full address
-            'address' => $this->build_full_address($xero_contact),
-            
-            // Custom field for de-duplication as per spec
-            'xero_contact_id' => $xero_contact['ContactID'],
-            
-            // Additional fields for better data structure
+            // Optional fields
+            'status' => 'Customer',
             'fname' => $this->extract_first_name($xero_contact['Name']),
             'lname' => $this->extract_last_name($xero_contact['Name']),
+            'hometel' => isset($xero_contact['Phones']) && !empty($xero_contact['Phones']) ? $xero_contact['Phones'][0]['PhoneNumber'] : '',
+            'worktel' => isset($xero_contact['Phones']) && count($xero_contact['Phones']) > 1 ? $xero_contact['Phones'][1]['PhoneNumber'] : '',
+            'mobtel' => isset($xero_contact['Phones']) && count($xero_contact['Phones']) > 2 ? $xero_contact['Phones'][2]['PhoneNumber'] : '',
+            
+            // Address fields
             'addr1' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['AddressLine1'] : '',
             'addr2' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['AddressLine2'] : '',
             'city' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['City'] : '',
             'county' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['Region'] : '',
             'postcode' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['PostalCode'] : '',
-            'country' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['Country'] : ''
+            'country' => isset($xero_contact['Addresses']) && !empty($xero_contact['Addresses']) ? $xero_contact['Addresses'][0]['Country'] : '',
+            
+            // Custom field for de-duplication as per spec
+            'xero-contact-id' => $xero_contact['ContactID']
         );
         
         if ($existing_contact) {
@@ -4234,26 +4228,22 @@ spl_autoload_register(function ($class) {
         // Find customer ID for this invoice
         $customer_id = $this->find_customer_id_for_invoice($xero_invoice);
         
-        // Map Xero Invoice to Jetpack CRM Transaction according to spec
+        // Map Xero Invoice to Jetpack CRM Transaction according to new Beta v2.0 API spec
         $transaction_data = array(
-            // Required fields per spec: customer ID, reference, amount, date, status, description
-            'customer_id' => $customer_id, // Customer ID as required by spec
-            'reference' => $xero_invoice['InvoiceNumber'], // Invoice Number as reference
-            'amount' => isset($xero_invoice['Total']) ? $xero_invoice['Total'] : 0,
-            'date' => isset($xero_invoice['Date']) ? date('Y-m-d', strtotime($xero_invoice['Date'])) : date('Y-m-d'),
-            'status' => isset($xero_invoice['Status']) ? strtolower($xero_invoice['Status']) : 'draft',
-            'description' => $description, // From LineItems.Description as per spec
+            // Required fields for new API
+            'email' => $this->get_customer_email_for_invoice($xero_invoice), // Links/creates customer
+            'orderid' => $xero_invoice['InvoiceNumber'], // Unique identifier
+            'status' => isset($xero_invoice['Status']) ? ucfirst(strtolower($xero_invoice['Status'])) : 'Completed',
+            'total' => isset($xero_invoice['Total']) ? $xero_invoice['Total'] : 0,
             
-            // Additional fields for better data structure
-            'title' => 'Invoice ' . $xero_invoice['InvoiceNumber'],
-            'type' => 'invoice',
-            'value' => isset($xero_invoice['Total']) ? $xero_invoice['Total'] : 0,
+            // Optional fields
+            'item_title' => $description, // Description from LineItems.Description
+            'date' => isset($xero_invoice['Date']) ? date('Y-m-d', strtotime($xero_invoice['Date'])) : date('Y-m-d'),
             'currency' => isset($xero_invoice['CurrencyCode']) ? $xero_invoice['CurrencyCode'] : 'USD',
-            'due_date' => isset($xero_invoice['DueDate']) ? date('Y-m-d', strtotime($xero_invoice['DueDate'])) : null,
             
             // Custom fields for de-duplication
-            'xero_invoice_id' => $xero_invoice['InvoiceID'],
-            'xero_invoice_number' => $xero_invoice['InvoiceNumber']
+            'xero-invoice-id' => $xero_invoice['InvoiceID'],
+            'xero-invoice-number' => $xero_invoice['InvoiceNumber']
         );
         
         if ($existing_transaction) {
@@ -4322,20 +4312,50 @@ spl_autoload_register(function ($class) {
             return false;
         }
         
-        // Check if endpoint already includes the API path
-        if (strpos($jetpack_endpoint, '/wp-json/') !== false) {
-            // Endpoint already includes the API path
-            $base_url = rtrim($jetpack_endpoint, '/') . '/' . ltrim($endpoint, '/');
-        } else {
-            // Add the standard Jetpack CRM API path
-            $base_url = rtrim($jetpack_endpoint, '/') . '/wp-json/jetpackcrm/v1/' . ltrim($endpoint, '/');
-        }
+        // Use new Jetpack CRM Beta v2.0 API endpoints
+        $base_url = rtrim($jetpack_endpoint, '/') . '/' . ltrim($endpoint, '/');
         $query_params = array_merge(array(
             'api_key' => $jetpack_api_key,
             'api_secret' => $jetpack_api_secret
         ), $params);
         
         return $base_url . '?' . http_build_query($query_params);
+    }
+    
+    private function get_customer_email_for_invoice($xero_invoice) {
+        // Get customer email from invoice contact
+        if (isset($xero_invoice['Contact']['EmailAddress']) && !empty($xero_invoice['Contact']['EmailAddress'])) {
+            return $xero_invoice['Contact']['EmailAddress'];
+        }
+        
+        // Fallback: try to find customer by ContactID
+        if (isset($xero_invoice['Contact']['ContactID'])) {
+            $existing_contact = $this->find_jetpack_contact_by_xero_id($xero_invoice['Contact']['ContactID']);
+            if ($existing_contact && isset($existing_contact['email'])) {
+                return $existing_contact['email'];
+            }
+        }
+        
+        // Last resort: return empty string (will create customer without email)
+        return '';
+    }
+    
+    private function get_customer_email_for_payment($xero_payment) {
+        // Get customer email from payment contact
+        if (isset($xero_payment['Contact']['EmailAddress']) && !empty($xero_payment['Contact']['EmailAddress'])) {
+            return $xero_payment['Contact']['EmailAddress'];
+        }
+        
+        // Fallback: try to find customer by ContactID
+        if (isset($xero_payment['Contact']['ContactID'])) {
+            $existing_contact = $this->find_jetpack_contact_by_xero_id($xero_payment['Contact']['ContactID']);
+            if ($existing_contact && isset($existing_contact['email'])) {
+                return $existing_contact['email'];
+            }
+        }
+        
+        // Last resort: return empty string (will create customer without email)
+        return '';
     }
     
     private function find_customer_id_for_invoice($xero_invoice) {
@@ -4366,10 +4386,11 @@ spl_autoload_register(function ($class) {
             return false;
         }
         
-        $response = wp_remote_get($url, array(
+        $response = wp_remote_post($url, array(
             'headers' => array(
                 'Content-Type' => 'application/json'
             ),
+            'body' => json_encode(array('perpage' => 100, 'search' => $email)),
             'timeout' => 15
         ));
         
@@ -4397,10 +4418,11 @@ spl_autoload_register(function ($class) {
             return false;
         }
         
-        $response = wp_remote_get($url, array(
+        $response = wp_remote_post($url, array(
             'headers' => array(
                 'Content-Type' => 'application/json'
             ),
+            'body' => json_encode(array('perpage' => 100)),
             'timeout' => 15
         ));
         
@@ -4524,7 +4546,7 @@ spl_autoload_register(function ($class) {
     }
     
     private function create_jetpack_contact($contact_data) {
-        $url = $this->build_jetpack_api_url('customers');
+        $url = $this->build_jetpack_api_url('create_customer');
         
         if (!$url) {
             $this->log_sync_message('Failed to build Jetpack CRM URL - missing credentials');
@@ -4567,7 +4589,7 @@ spl_autoload_register(function ($class) {
     }
     
     private function update_jetpack_contact($contact_id, $contact_data) {
-        $url = $this->build_jetpack_api_url('customers/' . $contact_id);
+        $url = $this->build_jetpack_api_url('create_customer');
         
         if (!$url) {
             return false;
@@ -4599,7 +4621,7 @@ spl_autoload_register(function ($class) {
     }
     
     private function create_jetpack_transaction($transaction_data) {
-        $url = $this->build_jetpack_api_url('transactions');
+        $url = $this->build_jetpack_api_url('create_transaction');
         
         if (!$url) {
             return false;
@@ -4630,7 +4652,7 @@ spl_autoload_register(function ($class) {
     }
     
     private function update_jetpack_transaction($transaction_id, $transaction_data) {
-        $url = $this->build_jetpack_api_url('transactions/' . $transaction_id);
+        $url = $this->build_jetpack_api_url('create_transaction');
         
         if (!$url) {
             return false;
