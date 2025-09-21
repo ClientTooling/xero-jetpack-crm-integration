@@ -3947,6 +3947,7 @@ spl_autoload_register(function ($class) {
         $data = json_decode($body, true);
         
         $this->log_sync_message('Xero invoices API response: ' . substr(wp_remote_retrieve_body($response), 0, 500));
+        $this->log_sync_message('Xero invoices API HTTP code: ' . $http_code);
         
         if (!isset($data['Invoices']) || !is_array($data['Invoices'])) {
             $this->log_sync_message('No invoices found in Xero response. Response structure: ' . print_r(array_keys($data), true));
@@ -4030,6 +4031,7 @@ spl_autoload_register(function ($class) {
         $data = json_decode($body, true);
         
         $this->log_sync_message('Xero payments API response: ' . substr($body, 0, 500));
+        $this->log_sync_message('Xero payments API HTTP code: ' . $http_code);
         
         if (!isset($data['Payments']) || !is_array($data['Payments'])) {
             $this->log_sync_message('No payments found in Xero response. Response structure: ' . print_r(array_keys($data), true));
@@ -4085,17 +4087,22 @@ spl_autoload_register(function ($class) {
             $description = $xero_payment['Details'];
         }
         
-        // Map Xero Payment to Jetpack CRM Transaction according to new Beta v2.0 API spec
+        // Map Xero Payment to Jetpack CRM Transaction according to specification
         $transaction_data = array(
             // Required fields for new API
             'email' => $this->get_customer_email_for_payment($xero_payment), // Links/creates customer
-            'orderid' => $xero_payment['PaymentID'], // Payment ID as unique identifier
+            'orderid' => $xero_payment['PaymentID'], // Payment ID (required)
             'status' => 'Completed', // Payments are always completed
-            'total' => isset($xero_payment['Amount']) ? $xero_payment['Amount'] : 0,
+            'total' => isset($xero_payment['Amount']) ? $xero_payment['Amount'] : 0, // Amount (required)
+            
+            // Required fields from specification
+            'item_title' => $description, // Description from Reference/Details (required)
+            'date' => isset($xero_payment['Date']) ? date('Y-m-d', strtotime($xero_payment['Date'])) : date('Y-m-d'), // Date (required)
+            
+            // Linked Invoice information
+            'linked_invoice' => isset($xero_payment['Invoice']) ? $xero_payment['Invoice']['InvoiceNumber'] : '',
             
             // Optional fields
-            'item_title' => $description, // From Reference/Details
-            'date' => isset($xero_payment['Date']) ? date('Y-m-d', strtotime($xero_payment['Date'])) : date('Y-m-d'),
             'currency' => isset($xero_payment['CurrencyCode']) ? $xero_payment['CurrencyCode'] : 'USD',
             
             // Custom fields for de-duplication
@@ -4244,17 +4251,20 @@ spl_autoload_register(function ($class) {
         // Find customer ID for this invoice
         $customer_id = $this->find_customer_id_for_invoice($xero_invoice);
         
-        // Map Xero Invoice to Jetpack CRM Transaction according to new Beta v2.0 API spec
+        // Map Xero Invoice to Jetpack CRM Transaction according to specification
         $transaction_data = array(
             // Required fields for new API
             'email' => $this->get_customer_email_for_invoice($xero_invoice), // Links/creates customer
-            'orderid' => $xero_invoice['InvoiceNumber'], // Unique identifier
-            'status' => isset($xero_invoice['Status']) ? ucfirst(strtolower($xero_invoice['Status'])) : 'Completed',
-            'total' => isset($xero_invoice['Total']) ? $xero_invoice['Total'] : 0,
+            'orderid' => $xero_invoice['InvoiceNumber'], // Invoice Number (required)
+            'status' => isset($xero_invoice['Status']) ? ucfirst(strtolower($xero_invoice['Status'])) : 'Completed', // Status (required)
+            'total' => isset($xero_invoice['Total']) ? $xero_invoice['Total'] : 0, // Amount (required)
+            
+            // Required fields from specification
+            'item_title' => $description, // Description from LineItems.Description (required)
+            'date' => isset($xero_invoice['Date']) ? date('Y-m-d', strtotime($xero_invoice['Date'])) : date('Y-m-d'), // Date (required)
+            'due_date' => isset($xero_invoice['DueDate']) ? date('Y-m-d', strtotime($xero_invoice['DueDate'])) : null, // Due Date (required)
             
             // Optional fields
-            'item_title' => $description, // Description from LineItems.Description
-            'date' => isset($xero_invoice['Date']) ? date('Y-m-d', strtotime($xero_invoice['Date'])) : date('Y-m-d'),
             'currency' => isset($xero_invoice['CurrencyCode']) ? $xero_invoice['CurrencyCode'] : 'USD',
             
             // Custom fields for de-duplication
