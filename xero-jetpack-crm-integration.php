@@ -3844,6 +3844,9 @@ spl_autoload_register(function ($class) {
         $synced = 0;
         $errors = 0;
         
+        // Email to Jetpack CRM ID mapping for transaction linking
+        $email_to_jp_id = array();
+        
         // Fetch contacts from Xero
         $response = wp_remote_get('https://api.xero.com/api.xro/2.0/Contacts', array(
             'headers' => array(
@@ -3892,9 +3895,21 @@ spl_autoload_register(function ($class) {
                     'total_contacts' => $total_contacts
                 ));
                 
+                // Normalize email for mapping
+                $email = isset($xero_contact['EmailAddress']) ? trim(strtolower($xero_contact['EmailAddress'])) : '';
+                
                 $result = $this->sync_single_contact($xero_contact);
                 if ($result) {
                     $synced++;
+                    
+                    // Capture Jetpack customer ID for transaction linking
+                    if (!empty($email)) {
+                        $jp_id = $this->get_jetpack_customer_id_by_email($email);
+                        if ($jp_id) {
+                            $email_to_jp_id[$email] = $jp_id;
+                            $this->log_sync_message('Contact Synced: ' . $email . ' to JP ID ' . $jp_id);
+                        }
+                    }
                 } else {
                     $errors++;
                 }
@@ -3904,7 +3919,10 @@ spl_autoload_register(function ($class) {
             }
         }
         
-        return array('synced' => $synced, 'errors' => $errors);
+        // Store email mapping for transaction linking
+        update_option('xero_email_to_jp_id_mapping', $email_to_jp_id);
+        
+        return array('synced' => $synced, 'errors' => $errors, 'email_mapping' => $email_to_jp_id);
     }
     
     private function sync_invoices_from_xero_with_progress() {
@@ -3917,6 +3935,9 @@ spl_autoload_register(function ($class) {
         
         $synced = 0;
         $errors = 0;
+        
+        // Get email to Jetpack CRM ID mapping for transaction linking
+        $email_to_jp_id = get_option('xero_email_to_jp_id_mapping', array());
         
         // Fetch invoices from Xero (last 12 months)
         $from_date = date('Y-m-d', strtotime('-12 months'));
@@ -3975,7 +3996,7 @@ spl_autoload_register(function ($class) {
                     'total_invoices' => $total_invoices
                 ));
                 
-                $result = $this->sync_single_invoice($xero_invoice);
+                $result = $this->sync_single_invoice($xero_invoice, $email_to_jp_id);
                 if ($result) {
                     $synced++;
                     $this->log_sync_message('Successfully synced invoice: ' . $xero_invoice['InvoiceNumber']);
@@ -4002,6 +4023,9 @@ spl_autoload_register(function ($class) {
         
         $synced = 0;
         $errors = 0;
+        
+        // Get email to Jetpack CRM ID mapping for transaction linking
+        $email_to_jp_id = get_option('xero_email_to_jp_id_mapping', array());
         
         // Fetch payments from Xero (last 12 months)
         $from_date = date('Y-m-d', strtotime('-12 months'));
@@ -4060,7 +4084,7 @@ spl_autoload_register(function ($class) {
                     'total_payments' => $total_payments
                 ));
                 
-                $result = $this->sync_single_payment($xero_payment);
+                $result = $this->sync_single_payment($xero_payment, $email_to_jp_id);
                 if ($result) {
                     $synced++;
                     $this->log_sync_message('Successfully synced payment: ' . $xero_payment['PaymentID']);
@@ -4077,7 +4101,7 @@ spl_autoload_register(function ($class) {
         return array('synced' => $synced, 'errors' => $errors);
     }
     
-    private function sync_single_payment($xero_payment) {
+    private function sync_single_payment($xero_payment, $email_to_jp_id = array()) {
         // Check if payment already exists in Jetpack CRM
         $existing_transaction = $this->find_jetpack_transaction_by_xero_payment_id($xero_payment['PaymentID']);
         
@@ -4089,10 +4113,15 @@ spl_autoload_register(function ($class) {
             $description = $xero_payment['Details'];
         }
         
+        // Get customer email and try to link to existing customer
+        $customer_email = $this->get_customer_email_for_payment($xero_payment);
+        $normalized_email = trim(strtolower($customer_email));
+        $customer_id = isset($email_to_jp_id[$normalized_email]) ? $email_to_jp_id[$normalized_email] : 0;
+        
         // Map Xero Payment to Jetpack CRM Transaction according to specification
         $transaction_data = array(
             // Required fields for new API
-            'email' => $this->get_customer_email_for_payment($xero_payment), // Links/creates customer
+            'email' => $customer_email, // Keep email as fallback
             'orderid' => $xero_payment['PaymentID'], // Payment ID (required)
             'status' => 'Completed', // Payments are always completed
             'total' => isset($xero_payment['Amount']) ? $xero_payment['Amount'] : 0, // Amount (required)
@@ -4100,6 +4129,9 @@ spl_autoload_register(function ($class) {
             // Required fields from specification
             'item_title' => $description, // Description from Reference/Details (required)
             'date' => isset($xero_payment['Date']) ? date('Y-m-d', strtotime($xero_payment['Date'])) : date('Y-m-d'), // Date (required)
+            
+            // Customer linking
+            'customer' => $customer_id, // Link to existing customer if found
             
             // Linked Invoice information
             'linked_invoice' => isset($xero_payment['Invoice']) ? $xero_payment['Invoice']['InvoiceNumber'] : '',
@@ -4118,6 +4150,38 @@ spl_autoload_register(function ($class) {
             // Create new transaction
             return $this->create_jetpack_transaction($transaction_data);
         }
+    }
+    
+    private function get_jetpack_customer_id_by_email($email) {
+        $url = $this->build_jetpack_api_url('customers');
+        
+        if (!$url) {
+            return false;
+        }
+        
+        $response = wp_remote_post($url, array(
+            'headers' => array(
+                'Content-Type' => 'application/json'
+            ),
+            'body' => json_encode(array('perpage' => 100, 'search' => $email)),
+            'timeout' => 15
+        ));
+        
+        if (is_wp_error($response)) {
+            return false;
+        }
+        
+        $customers = json_decode(wp_remote_retrieve_body($response), true);
+        
+        if (is_array($customers)) {
+            foreach ($customers as $customer) {
+                if (isset($customer['email']) && strtolower(trim($customer['email'])) === strtolower(trim($email))) {
+                    return isset($customer['ID']) ? $customer['ID'] : (isset($customer['id']) ? $customer['id'] : false);
+                }
+            }
+        }
+        
+        return false;
     }
     
     private function sync_single_contact($xero_contact) {
@@ -4213,7 +4277,7 @@ spl_autoload_register(function ($class) {
         // Process each invoice
         foreach ($data['Invoices'] as $xero_invoice) {
             try {
-                $result = $this->sync_single_invoice($xero_invoice);
+                $result = $this->sync_single_invoice($xero_invoice, $email_to_jp_id);
                 if ($result) {
                     $synced++;
                 } else {
@@ -4228,7 +4292,7 @@ spl_autoload_register(function ($class) {
         return array('synced' => $synced, 'errors' => $errors);
     }
     
-    private function sync_single_invoice($xero_invoice) {
+    private function sync_single_invoice($xero_invoice, $email_to_jp_id = array()) {
         // Check if transaction already exists in Jetpack CRM
         // Match on InvoiceNumber as per spec
         $existing_transaction = $this->find_jetpack_transaction_by_invoice_number($xero_invoice['InvoiceNumber']);
@@ -4253,10 +4317,15 @@ spl_autoload_register(function ($class) {
         // Find customer ID for this invoice
         $customer_id = $this->find_customer_id_for_invoice($xero_invoice);
         
+        // Get customer email and try to link to existing customer
+        $customer_email = $this->get_customer_email_for_invoice($xero_invoice);
+        $normalized_email = trim(strtolower($customer_email));
+        $customer_id = isset($email_to_jp_id[$normalized_email]) ? $email_to_jp_id[$normalized_email] : 0;
+        
         // Map Xero Invoice to Jetpack CRM Transaction according to specification
         $transaction_data = array(
             // Required fields for new API
-            'email' => $this->get_customer_email_for_invoice($xero_invoice), // Links/creates customer
+            'email' => $customer_email, // Keep email as fallback
             'orderid' => $xero_invoice['InvoiceNumber'], // Invoice Number (required)
             'status' => isset($xero_invoice['Status']) ? ucfirst(strtolower($xero_invoice['Status'])) : 'Completed', // Status (required)
             'total' => isset($xero_invoice['Total']) ? $xero_invoice['Total'] : 0, // Amount (required)
@@ -4265,6 +4334,9 @@ spl_autoload_register(function ($class) {
             'item_title' => $description, // Description from LineItems.Description (required)
             'date' => isset($xero_invoice['Date']) ? date('Y-m-d', strtotime($xero_invoice['Date'])) : date('Y-m-d'), // Date (required)
             'due_date' => isset($xero_invoice['DueDate']) ? date('Y-m-d', strtotime($xero_invoice['DueDate'])) : null, // Due Date (required)
+            
+            // Customer linking
+            'customer' => $customer_id, // Link to existing customer if found
             
             // Optional fields
             'currency' => isset($xero_invoice['CurrencyCode']) ? $xero_invoice['CurrencyCode'] : 'USD',
@@ -4679,7 +4751,13 @@ spl_autoload_register(function ($class) {
         $this->log_sync_message('Full response body: ' . $body);
         
         if ($http_code >= 200 && $http_code < 300) {
-            $this->log_sync_message('Created Jetpack transaction: ' . $transaction_data['orderid']);
+            $linking_info = '';
+            if (isset($transaction_data['customer']) && $transaction_data['customer'] > 0) {
+                $linking_info = ' (Linked to Customer ID: ' . $transaction_data['customer'] . ')';
+            } else {
+                $linking_info = ' (No customer linking - using email: ' . $transaction_data['email'] . ')';
+            }
+            $this->log_sync_message('Created Jetpack transaction: ' . $transaction_data['orderid'] . $linking_info);
             return true;
         } else {
             $this->log_sync_message('Failed to create Jetpack transaction (HTTP ' . $http_code . '): ' . $body);
